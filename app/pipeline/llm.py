@@ -5,6 +5,7 @@ API key is configured, the caller can fall back to the deterministic pipeline.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Literal
 
@@ -86,6 +87,9 @@ produce materially different architectures when their capabilities or quality at
 
 
 def is_enabled() -> bool:
+    enabled = os.getenv("LLM_ENABLED", "").strip().lower()
+    if enabled in {"1", "true", "yes", "on"}:
+        return bool(os.getenv("LLM_API_KEY", "").strip()) and OpenAI is not None
     return bool(os.getenv("LLM_API_KEY", "").strip()) and OpenAI is not None
 
 
@@ -121,14 +125,288 @@ def _response_kwargs(*, text_format: type[BaseModel], max_output_tokens: int) ->
     }
 
 
-def _parse(text: str) -> RequirementParseResult:
+def _is_ollama() -> bool:
+    base_url = os.getenv("LLM_BASE_URL", "").lower()
+    return "localhost:11434" in base_url or "127.0.0.1:11434" in base_url
+
+
+def _ollama_text_from_message(message: object) -> str:
+    if message is None:
+        return ""
+    content = getattr(message, "content", "")
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content") or ""
+                if text:
+                    parts.append(str(text))
+        return "".join(parts)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def _ollama_debug_details(response: object) -> str:
+    try:
+        choice = getattr(response, "choices", [None])[0]
+    except (IndexError, TypeError):
+        choice = None
+    message = getattr(choice, "message", None) if choice is not None else None
+    reasoning = getattr(message, "reasoning", None) if message is not None else None
+    reasoning_content = getattr(message, "reasoning_content", None) if message is not None else None
+    content = _ollama_text_from_message(message)
+    return (
+        f"model={_model()} base_url={os.getenv('LLM_BASE_URL', '')} "
+        f"has_reasoning={bool(reasoning or reasoning_content)} reasoning_preview={str(reasoning or reasoning_content)[:400]!r} "
+        f"content_preview={content[:400]!r}"
+    )
+
+
+def _requirement_type_for_text(text: str) -> Literal["functional", "non_functional", "ambiguous"]:
+    low = text.lower()
+    if any(k in low for k in ["secure", "audit", "privacy", "availability", "performance", "latency", "reliable", "encrypt", "compliance"]):
+        return "non_functional"
+    if len(text.split()) < 4 or any(k in low for k in ["fast", "easy", "appropriate", "something", "etc"]):
+        return "ambiguous"
+    return "functional"
+
+
+def _normalize_ollama_payload(data: dict, expected_type: type[BaseModel]) -> dict:
+    if not isinstance(data, dict):
+        return data
+
+    if expected_type is RequirementParseResult:
+        for key in ["requirements", "atomic_requirements", "items"]:
+            if key in data and isinstance(data[key], list):
+                data = {**data, "requirements": data[key]}
+                break
+        if "requirements" not in data:
+            if all(isinstance(v, dict) for v in data.values()):
+                data = {"requirements": list(data.values())}
+            elif all(isinstance(v, str) for v in data.values()):
+                items = [{"id": f"REQ-{i:03d}", "text": value, "type": _requirement_type_for_text(value), "confidence": 0.9, "ambiguity_reason": ""} for i, value in enumerate(data.values(), 1)]
+                data = {"requirements": items}
+
+        if "requirements" in data and isinstance(data["requirements"], list):
+            reqs = []
+            for idx, item in enumerate(data["requirements"], 1):
+                if isinstance(item, str):
+                    reqs.append({
+                        "id": f"REQ-{idx:03d}",
+                        "text": item,
+                        "type": _requirement_type_for_text(item),
+                        "confidence": 0.9,
+                        "ambiguity_reason": "",
+                    })
+                elif isinstance(item, dict):
+                    req = dict(item)
+                    req.setdefault("id", f"REQ-{idx:03d}")
+                    req.setdefault("text", req.get("description") or req.get("requirement") or "")
+                    req.setdefault("type", _requirement_type_for_text(str(req.get("text", ""))))
+                    req.setdefault("confidence", 0.9)
+                    req.setdefault("ambiguity_reason", "")
+                    reqs.append(req)
+            data = {"requirements": reqs}
+
+    elif expected_type is ComponentExtractionResult:
+        for key in ["components", "architectural_components", "items"]:
+            if key in data and isinstance(data[key], list):
+                data = {**data, "components": data[key]}
+                break
+        if "components" in data and isinstance(data["components"], list):
+            component_items = []
+            for idx, item in enumerate(data["components"], 1):
+                if isinstance(item, str):
+                    component_items.append({
+                        "name": item,
+                        "responsibility": f"Handles {item.lower()}.",
+                        "requirement_ids": [],
+                        "technologies": [],
+                    })
+                elif isinstance(item, dict):
+                    comp = dict(item)
+                    comp.setdefault("name", f"Component-{idx:02d}")
+                    comp.setdefault("responsibility", "")
+                    comp.setdefault("requirement_ids", [])
+                    comp.setdefault("technologies", [])
+                    component_items.append(comp)
+            data = {"components": component_items}
+        elif "components" not in data and isinstance(data, dict):
+            values = list(data.values())
+            if values and all(isinstance(v, dict) for v in values):
+                data = {"components": values}
+
+    elif expected_type is ArchitectureSynthesisResult:
+        if "style" not in data:
+            data["style"] = "Layered"
+        if "components" not in data and "architectural_components" in data:
+            data = {**data, "components": data["architectural_components"]}
+        if "relationships" not in data and "edges" in data:
+            data = {**data, "relationships": data["edges"]}
+        if "patterns" not in data and "recommended_patterns" in data:
+            data = {**data, "patterns": data["recommended_patterns"]}
+        if "architectural_summary" not in data and "summary" in data:
+            data = {**data, "architectural_summary": data["summary"]}
+        if "architectural_summary" not in data:
+            data["architectural_summary"] = "Architecture synthesized from the provided requirements."
+        if "components" in data and isinstance(data["components"], list):
+            component_items = []
+            for idx, item in enumerate(data["components"], 1):
+                if isinstance(item, str):
+                    component_items.append({
+                        "name": item,
+                        "responsibility": "",
+                        "requirement_ids": [],
+                        "technologies": [],
+                    })
+                elif isinstance(item, dict):
+                    comp = dict(item)
+                    comp.setdefault("name", f"Component-{idx:02d}")
+                    comp.setdefault("responsibility", "")
+                    comp.setdefault("requirement_ids", [])
+                    comp.setdefault("technologies", [])
+                    component_items.append(comp)
+            data["components"] = component_items
+        if "relationships" in data and isinstance(data["relationships"], dict):
+            rels = []
+            for source, info in data["relationships"].items():
+                if isinstance(info, dict):
+                    for target, rationale in info.items():
+                        rels.append({"source": source, "target": target, "kind": "depends_on", "rationale": rationale})
+                else:
+                    rels.append({"source": source, "target": "", "kind": "depends_on", "rationale": str(info)})
+            data["relationships"] = rels
+        if "patterns" in data and isinstance(data["patterns"], str):
+            data["patterns"] = [data["patterns"]]
+        if "relationships" not in data:
+            data["relationships"] = []
+        if "patterns" not in data:
+            data["patterns"] = []
+
+    elif expected_type is RationaleResult:
+        if "trace_links" not in data and "links" in data:
+            data = {**data, "trace_links": data["links"]}
+        if "warnings" not in data and "issues" in data:
+            data = {**data, "warnings": data["issues"]}
+        if "review_notes" not in data and "notes" in data:
+            data = {**data, "review_notes": data["notes"]}
+
+        if "trace_links" in data and isinstance(data["trace_links"], list):
+            normalized_links = []
+            for item in data["trace_links"]:
+                if not isinstance(item, dict):
+                    continue
+                link = dict(item)
+                link["architectural_element"] = link.get("architectural_element") or link.get("architect.ural_element") or link.get("element") or ""
+                link["requirement_id"] = link.get("requirement_id") or link.get("requirement") or link.get("id") or ""
+                link["decision"] = link.get("decision") or link.get("title") or ""
+                link["rationale"] = link.get("rationale") or link.get("reason") or ""
+                if isinstance(link.get("confidence"), str):
+                    conf = link["confidence"].strip().lower()
+                    mapping = {"low": 0.3, "medium": 0.6, "high": 0.9}
+                    link["confidence"] = mapping.get(conf, 0.9)
+                elif link.get("confidence") is None:
+                    link["confidence"] = 0.9
+                normalized_links.append(link)
+            data["trace_links"] = normalized_links
+
+        for key in ["warnings", "review_notes"]:
+            if key in data and isinstance(data[key], str):
+                data[key] = [data[key]]
+            elif key in data and isinstance(data[key], list):
+                items = []
+                for item in data[key]:
+                    if isinstance(item, dict):
+                        items.append(item.get("message") or item.get("text") or item.get("note") or str(item))
+                    elif item is not None:
+                        items.append(str(item))
+                data[key] = items
+
+    return data
+
+
+def _ollama_structured_call(text_format: type[BaseModel], prompt: str, *, max_output_tokens: int) -> BaseModel:
     client = _client()
+    schema_hint = {
+        RequirementParseResult: 'Return a JSON object with exact top-level key "requirements" and items: {"id":"REQ-001","text":"...","type":"functional","confidence":0.9,"ambiguity_reason":""}.',
+        ComponentExtractionResult: 'Return a JSON object with exact top-level key "components" and items: {"name":"Order Service","responsibility":"...","requirement_ids":["REQ-001"],"technologies":["REST"]}.',
+        ArchitectureSynthesisResult: 'Return a JSON object with keys: "style", "components", "relationships", "patterns", "architectural_summary".',
+        RationaleResult: 'Return a JSON object with keys: "trace_links", "warnings", "review_notes".',
+    }.get(text_format, 'Return valid JSON only.')
+
+    for attempt in range(2):
+        response = client.chat.completions.create(
+            model=_model(),
+            messages=[
+                {"role": "system", "content": SYSTEM_BASE},
+                {"role": "user", "content": f"{prompt}\n\n{schema_hint}\nReturn valid JSON only. No markdown fences. No prose outside JSON."},
+            ],
+            response_format={"type": "json_object"},
+            reasoning_effort="none",
+            max_tokens=max_output_tokens,
+        )
+
+        choice = getattr(response, "choices", [None])[0] if getattr(response, "choices", None) else None
+        message = getattr(choice, "message", None) if choice is not None else None
+        content = _ollama_text_from_message(message)
+        if not content or not content.strip():
+            reason_text = getattr(message, "reasoning", None) if message is not None else None
+            reason_text = reason_text or getattr(message, "reasoning_content", None) if message is not None else None
+            if reason_text:
+                if attempt == 0:
+                    continue
+                raise RuntimeError(
+                    "Ollama returned structured-output content only in reasoning/thinking data. "
+                    + _ollama_debug_details(response)
+                )
+            if attempt == 0:
+                continue
+            raise RuntimeError("Ollama returned empty structured-output content. " + _ollama_debug_details(response))
+
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].lstrip()
+            cleaned = cleaned.strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].rstrip()
+
+        try:
+            payload = json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            if attempt == 0:
+                continue
+            raise RuntimeError(f"Ollama returned invalid JSON. {exc.msg} at line {exc.lineno} column {exc.colno}. Raw payload: {cleaned[:500]!r}") from exc
+
+        normalized = _normalize_ollama_payload(payload, text_format)
+        if text_format is ArchitectureSynthesisResult and attempt == 0:
+            if not normalized.get("style") or not normalized.get("architectural_summary") or not normalized.get("patterns"):
+                continue
+        try:
+            return text_format.model_validate(normalized)
+        except Exception:
+            if attempt == 0:
+                continue
+            raise
+
+    raise RuntimeError(f"Qwen/Ollama failed to produce a valid {text_format.__name__} payload after retrying.")
+
+
+def _parse(text: str) -> RequirementParseResult:
     prompt = f"""Parse the following software requirements into atomic requirements.
 Classify each as functional, non_functional, or ambiguous. Mark something ambiguous
 when the wording is genuinely underspecified (not merely because it is short).
 Assign stable IDs REQ-001, REQ-002, ... in input order.
 
 REQUIREMENTS:\n{text}"""
+    if _is_ollama():
+        return _ollama_structured_call(RequirementParseResult, prompt, max_output_tokens=2000)
+
+    client = _client()
     response = client.responses.parse(
         model=_model(),
         instructions=SYSTEM_BASE,
@@ -141,7 +419,6 @@ REQUIREMENTS:\n{text}"""
 
 
 def _components(reqs: list[Requirement]) -> ComponentExtractionResult:
-    client = _client()
     payload = "\n".join(f"{r.id} [{r.type}] {r.text}" for r in reqs)
     prompt = f"""Extract the major architectural components needed by these requirements.
 Deduplicate overlapping responsibilities. Every functional requirement should map to
@@ -150,6 +427,10 @@ as cross-cutting infrastructure or constraints. Do not create components merely 
 a keyword appears. Include likely technologies only when they are justified by the requirements.
 
 REQUIREMENTS:\n{payload}"""
+    if _is_ollama():
+        return _ollama_structured_call(ComponentExtractionResult, prompt, max_output_tokens=3000)
+
+    client = _client()
     response = client.responses.parse(
         model=_model(),
         instructions=SYSTEM_BASE,
@@ -186,7 +467,6 @@ def _component_requirement_ids(component: Component | LLMComponent) -> list[str]
 
 
 def _synthesize(reqs: list[Requirement], components: list[Component]) -> ArchitectureSynthesisResult:
-    client = _client()
     req_text = "\n".join(f"{r.id}: {r.text}" for r in reqs)
     comp_text = "\n".join(
         f"{c.name}: {c.responsibility} (requirements: {', '.join(_component_requirement_ids(c))})" for c in components
@@ -198,16 +478,19 @@ Select a small set of established patterns that are genuinely useful here. Retur
 component list so it can be validated downstream.
 
 REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
-
-    response = client.responses.parse(
-        model=_model(),
-        instructions=SYSTEM_BASE,
-        input=prompt,
-        **_response_kwargs(text_format=ArchitectureSynthesisResult, max_output_tokens=6000),
-    )
-    if not response.output_parsed:
-        raise RuntimeError("Model returned no structured architecture output.")
-    result = response.output_parsed
+    if _is_ollama():
+        result = _ollama_structured_call(ArchitectureSynthesisResult, prompt, max_output_tokens=6000)
+    else:
+        client = _client()
+        response = client.responses.parse(
+            model=_model(),
+            instructions=SYSTEM_BASE,
+            input=prompt,
+            **_response_kwargs(text_format=ArchitectureSynthesisResult, max_output_tokens=6000),
+        )
+        if not response.output_parsed:
+            raise RuntimeError("Model returned no structured architecture output.")
+        result = response.output_parsed
     # Tool-use stage: run a deterministic local architecture-pattern recommender on
     # the model-selected patterns. This makes pattern rationale a separate, testable
     # tool stage rather than burying everything in one prompt.
@@ -217,7 +500,6 @@ REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
 
 
 def _rationale(reqs: list[Requirement], arch: Architecture) -> RationaleResult:
-    client = _client()
     req_text = "\n".join(f"{r.id}: {r.text}" for r in reqs)
     comp_text = "\n".join(f"- {c.name}: {c.responsibility} [{', '.join(c.requirements)}]" for c in arch.components)
     rel_text = "\n".join(f"- {x.source} -> {x.target} ({x.kind}): {x.rationale}" for x in arch.relationships)
@@ -228,6 +510,10 @@ assumptions, or ambiguous requirements in warnings. Review the architecture for 
 requirement coverage; do not claim it is correct merely because it is plausible.
 
 REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{comp_text}\n\nRELATIONSHIPS:\n{rel_text}\n\nPATTERNS: {', '.join(arch.patterns)}"""
+    if _is_ollama():
+        return _ollama_structured_call(RationaleResult, prompt, max_output_tokens=4000)
+
+    client = _client()
     response = client.responses.parse(
         model=_model(),
         instructions=SYSTEM_BASE,
