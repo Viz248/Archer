@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Req2Arch — AI Architecture Synthesizer</title>
+<style>
+:root{font-family:Inter,system-ui,Segoe UI,sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.wrap{max-width:1250px;margin:auto;padding:28px}.hero{background:#111827;color:white;border-radius:20px;padding:28px 30px;margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:0;color:#cbd5e1}.badge{display:inline-block;margin-top:14px;padding:6px 10px;border-radius:999px;background:#334155;color:#e2e8f0;font-size:12px}.grid{display:grid;grid-template-columns:420px 1fr;gap:20px}.card{background:white;border:1px solid #e5e7eb;border-radius:16px;padding:20px;box-shadow:0 8px 30px #0000000a}.card h2{margin-top:0;font-size:18px}.input{width:100%;min-height:320px;border:1px solid #d1d5db;border-radius:12px;padding:14px;font:14px ui-monospace,monospace;resize:vertical}.btns{display:flex;gap:10px;margin-top:12px}.btn{border:0;border-radius:10px;padding:11px 16px;cursor:pointer;font-weight:700}.primary{background:#111827;color:white}.secondary{background:#e5e7eb;color:#111827}.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}.tab{padding:8px 12px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer}.tab.active{background:#111827;color:#fff}.panel{display:none}.panel.active{display:block}.metric{display:inline-block;background:#f3f4f6;border-radius:10px;padding:10px 14px;margin:0 8px 8px 0}.component{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:9px 0}.component strong{display:block}.trace{border-collapse:collapse;width:100%;font-size:13px}.trace th,.trace td{border:1px solid #e5e7eb;padding:8px;text-align:left;vertical-align:top}.trace th{background:#f9fafb}.uml{background:#0b1020;color:#e5e7eb;border-radius:12px;padding:14px;white-space:pre-wrap;font:12px ui-monospace,monospace;overflow:auto;max-height:480px}.status{margin-top:10px;color:#64748b;font-size:13px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;margin-bottom:12px}.empty{color:#64748b;padding:25px;text-align:center}.download{display:inline-block;margin-top:10px;padding:9px 12px;border-radius:8px;background:#eef2ff;color:#3730a3;cursor:pointer}.small{font-size:12px;color:#64748b}.stage{display:inline-block;margin:3px 5px 3px 0;padding:6px 8px;background:#eef2ff;border-radius:7px;font-size:12px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="hero"><h1>AI Assisted Requirements → Architecture</h1><p>Real model-backed, structured, explainable requirements-to-architecture synthesis with traceability and UML specifications.</p><span id="mode" class="badge">Checking AI configuration…</span></div>
+<div class="grid">
+<section class="card">
+<h2>1. Requirements</h2>
+<textarea id="req" class="input" placeholder="Enter one requirement per line..."></textarea>
+<div class="btns"><button class="btn primary" onclick="analyze()">Synthesize Architecture</button><button class="btn secondary" onclick="sample()">Load Sample</button></div>
+<div id="status" class="status">Ready.</div>
+</section>
+<section class="card">
+<div class="tabs">
+<button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="architecture">Architecture</button><button class="tab" data-tab="trace">Traceability</button><button class="tab" data-tab="uml">UML</button><button class="tab" data-tab="report">Report</button>
+</div>
+<div id="overview" class="panel active"><div class="empty">Run the pipeline to generate an architecture.</div></div>
+<div id="architecture" class="panel"></div><div id="trace" class="panel"></div><div id="uml" class="panel"></div><div id="report" class="panel"></div>
+</section>
+</div></div>
+<script>
+let result=null;
+async function loadConfig(){try{const r=await fetch('/api/config');const j=await r.json();const el=document.getElementById('mode');el.textContent=j.llm_configured?'● LIVE LLM · '+(j.provider||j.model):'○ FALLBACK MODE · configure LLM_API_KEY';}catch(e){document.getElementById('mode').textContent='Configuration unavailable'}}
+async function sample(){const r=await fetch('/api/sample');const j=await r.json();document.getElementById('req').value=j.requirements}
+async function analyze(){
+ const text=document.getElementById('req').value; const status=document.getElementById('status');
+ if(!text.trim()){status.textContent='Enter some requirements first.';return}
+ status.textContent='Running LLM parser → component extraction → architecture synthesis → reflection → UML/report…';
+ try{const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requirements:text})});const j=await r.json();if(!r.ok)throw new Error(j.detail||'Request failed');result=j;render(j);status.textContent='Completed '+j.mode+' run '+j.run_id+'.';}catch(e){status.textContent='Error: '+e.message}
+}
+function render(j){
+ const a=j.architecture;
+ document.getElementById('overview').innerHTML=`<div class="metric"><b>${j.requirements.length}</b><br><span class="small">requirements</span></div><div class="metric"><b>${a.components.length}</b><br><span class="small">components</span></div><div class="metric"><b>${j.trace_links.length}</b><br><span class="small">trace links</span></div><div class="metric"><b>${a.relationships.length}</b><br><span class="small">relationships</span></div><h3>Run mode</h3><p><b>${j.mode}</b></p><h3>Architecture style</h3><p>${a.style}</p><h3>AI stages</h3><div>${j.ai_stages.map(x=>`<span class="stage">${x}</span>`).join('')||'<span class="small">Fallback pipeline only</span>'}</div>${j.warnings.map(w=>`<div class="warn">${w}</div>`).join('')}<h3>Patterns</h3><p>${a.patterns.map(x=>`<span class="metric">${x}</span>`).join('')}</p>`;
+ document.getElementById('architecture').innerHTML=`<h3>Components</h3>${a.components.map(c=>`<div class="component"><strong>${c.name}</strong>${c.responsibility}<div class="small">Requirements: ${c.requirements.join(', ')||'cross-cutting'} · Tech: ${c.technologies.join(', ')||'not specified'}</div></div>`).join('')}<h3>Relationships</h3>${a.relationships.map(x=>`<div class="component"><strong>${x.source} → ${x.target}</strong>${x.kind} — ${x.rationale}</div>`).join('')}`;
+ document.getElementById('trace').innerHTML=`<h3>Requirement → Architecture Trace</h3><table class="trace"><tr><th>Requirement</th><th>Element</th><th>Decision</th><th>Rationale</th><th>Confidence</th></tr>${j.trace_links.map(t=>`<tr><td>${t.requirement_id}</td><td>${t.architectural_element}</td><td>${t.decision}</td><td>${t.rationale}</td><td>${Number(t.confidence).toFixed(2)}</td></tr>`).join('')}</table>`;
+ document.getElementById('uml').innerHTML=Object.entries(j.uml).map(([k,v])=>`<h3>${k.replace('_',' ').toUpperCase()}</h3><div class="uml">${escapeHtml(v)}</div>`).join('');
+ document.getElementById('report').innerHTML=`<h3>Generated Report</h3><p class="small">Generated from this run. Includes the execution mode and AI pipeline stages.</p><pre class="uml">${escapeHtml(j.report_markdown)}</pre><span class="download" onclick="downloadReport()">Download report.md</span>`;
+}
+function escapeHtml(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+function downloadReport(){const blob=new Blob([result.report_markdown],{type:'text/markdown'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='architecture-report.md';a.click();URL.revokeObjectURL(a.href)}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active')});
+loadConfig();sample();
+</script></body></html>

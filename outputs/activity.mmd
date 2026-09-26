@@ -1,0 +1,14 @@
+flowchart TD
+    A([Start]) --> B[Upload / paste requirements]
+    B --> C[Parse and classify requirements]
+    C --> D[Extract components]
+    D --> E{Ambiguous requirements?}
+    E -- Yes --> F[Flag for clarification]
+    F --> C
+    E -- No --> G[Synthesize architecture]
+    G --> H[Generate rationale and trace links]
+    H --> I[Generate UML diagrams]
+    I --> J[Generate report]
+    J --> K{Reviewer changes?}
+    K -- Yes --> G
+    K -- No --> L([Approved output])

@@ -1,0 +1,22 @@
+sequenceDiagram
+actor User
+participant API
+participant Parser
+participant Extractor
+participant Synthesizer
+participant Tracer
+participant UML
+participant Report
+User->>API: Submit requirements
+API->>Parser: Parse
+Parser-->>API: Structured requirements
+API->>Extractor: Extract components
+Extractor-->>API: Components
+API->>Synthesizer: Synthesize architecture
+Synthesizer-->>API: Architecture
+API->>Tracer: Build trace links
+Tracer-->>API: Rationale trace
+API->>UML: Generate diagrams
+UML-->>API: Mermaid specs
+API->>Report: Build report
+Report-->>User: Architecture + trace + diagrams

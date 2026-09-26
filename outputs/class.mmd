@@ -1,0 +1,29 @@
+classDiagram
+class Requirement
+class Component
+class Architecture
+class TraceLink
+class PipelineStage
+class DiagramGenerator
+class ReportExporter
+Architecture o-- Component
+Architecture --> Requirement
+TraceLink --> Requirement
+TraceLink --> Component
+PipelineStage --> Architecture
+Architecture --> DiagramGenerator
+Architecture --> ReportExporter
+class UserService
+Component <|-- UserService
+class CatalogService
+Component <|-- CatalogService
+class SearchService
+Component <|-- SearchService
+class OrderService
+Component <|-- OrderService
+class NotificationService
+Component <|-- NotificationService
+class AIInferenceService
+Component <|-- AIInferenceService
+class AuditService
+Component <|-- AuditService

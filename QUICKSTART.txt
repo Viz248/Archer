@@ -1,0 +1,17 @@
+FASTEST WAY TO RUN
+
+1. Install Python 3.11+.
+2. Open a terminal in this folder.
+3. Run:
+   python standalone_demo.py
+4. Open:
+   http://127.0.0.1:8000
+
+This standalone mode needs NO pip packages.
+
+OPTIONAL FULL FASTAPI MODE
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+
+Docker:
+docker compose up --build

@@ -1,0 +1,307 @@
+{
+  "run_id": "a72dba2771",
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "text": "Users shall be able to register and log in securely.",
+      "type": "non_functional",
+      "confidence": 0.86
+    },
+    {
+      "id": "REQ-002",
+      "text": "Users shall browse products and search the catalog.",
+      "type": "functional",
+      "confidence": 0.92
+    },
+    {
+      "id": "REQ-003",
+      "text": "Users shall create orders and pay online.",
+      "type": "functional",
+      "confidence": 0.92
+    },
+    {
+      "id": "REQ-004",
+      "text": "The system shall send an email notification when an order is placed.",
+      "type": "functional",
+      "confidence": 0.92
+    },
+    {
+      "id": "REQ-005",
+      "text": "The system shall support high availability and audit important actions.",
+      "type": "non_functional",
+      "confidence": 0.86
+    }
+  ],
+  "architecture": {
+    "style": "Layered + Pipeline-based architecture",
+    "components": [
+      {
+        "id": "COMP-001",
+        "name": "User Service",
+        "responsibility": "Manages user profiles and account data.",
+        "requirements": [
+          "REQ-001",
+          "REQ-002",
+          "REQ-003"
+        ],
+        "technologies": [
+          "REST"
+        ]
+      },
+      {
+        "id": "COMP-002",
+        "name": "Catalog Service",
+        "responsibility": "Provides product/catalog information and search.",
+        "requirements": [
+          "REQ-002"
+        ],
+        "technologies": [
+          "PostgreSQL",
+          "REST"
+        ]
+      },
+      {
+        "id": "COMP-003",
+        "name": "Search Service",
+        "responsibility": "Indexes and searches domain data.",
+        "requirements": [
+          "REQ-002"
+        ],
+        "technologies": [
+          "Search Index"
+        ]
+      },
+      {
+        "id": "COMP-004",
+        "name": "Order Service",
+        "responsibility": "Creates and manages orders and their lifecycle.",
+        "requirements": [
+          "REQ-003",
+          "REQ-004"
+        ],
+        "technologies": [
+          "PostgreSQL",
+          "REST"
+        ]
+      },
+      {
+        "id": "COMP-005",
+        "name": "Notification Service",
+        "responsibility": "Sends email, SMS, or push notifications.",
+        "requirements": [
+          "REQ-004"
+        ],
+        "technologies": [
+          "Message Queue"
+        ]
+      },
+      {
+        "id": "COMP-006",
+        "name": "AI Inference Service",
+        "responsibility": "Runs model inference and returns structured predictions.",
+        "requirements": [
+          "REQ-004",
+          "REQ-005"
+        ],
+        "technologies": [
+          "ML Model",
+          "Python"
+        ]
+      },
+      {
+        "id": "COMP-007",
+        "name": "Audit Service",
+        "responsibility": "Records security and business events for traceability.",
+        "requirements": [
+          "REQ-005"
+        ],
+        "technologies": [
+          "Append-only Log"
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "source": "Client",
+        "target": "User Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "Catalog Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "Search Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "Order Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "Notification Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "AI Inference Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "Client",
+        "target": "Audit Service",
+        "kind": "request",
+        "rationale": "Client submits or consumes the capability."
+      },
+      {
+        "source": "User Service",
+        "target": "Catalog Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "Catalog Service",
+        "target": "Search Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "Search Service",
+        "target": "Order Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "Order Service",
+        "target": "Notification Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "Notification Service",
+        "target": "AI Inference Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "AI Inference Service",
+        "target": "Audit Service",
+        "kind": "service-call",
+        "rationale": "Pipeline/service dependency inferred from related capabilities."
+      },
+      {
+        "source": "Order Service",
+        "target": "Notification Service",
+        "kind": "event",
+        "rationale": "Business events can trigger user notifications."
+      }
+    ],
+    "patterns": [
+      "Layered Architecture",
+      "Pipeline / Pipes and Filters",
+      "Strategy",
+      "Facade",
+      "Factory Method",
+      "Observer",
+      "Chain of Responsibility",
+      "Repository"
+    ]
+  },
+  "trace_links": [
+    {
+      "requirement_id": "REQ-001",
+      "architectural_element": "User Service",
+      "decision": "Create/use User Service",
+      "rationale": "Manages user profiles and account data.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-002",
+      "architectural_element": "User Service",
+      "decision": "Create/use User Service",
+      "rationale": "Manages user profiles and account data.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-002",
+      "architectural_element": "Catalog Service",
+      "decision": "Create/use Catalog Service",
+      "rationale": "Provides product/catalog information and search.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-002",
+      "architectural_element": "Search Service",
+      "decision": "Create/use Search Service",
+      "rationale": "Indexes and searches domain data.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-003",
+      "architectural_element": "User Service",
+      "decision": "Create/use User Service",
+      "rationale": "Manages user profiles and account data.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-003",
+      "architectural_element": "Order Service",
+      "decision": "Create/use Order Service",
+      "rationale": "Creates and manages orders and their lifecycle.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-004",
+      "architectural_element": "Order Service",
+      "decision": "Create/use Order Service",
+      "rationale": "Creates and manages orders and their lifecycle.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-004",
+      "architectural_element": "Notification Service",
+      "decision": "Create/use Notification Service",
+      "rationale": "Sends email, SMS, or push notifications.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-004",
+      "architectural_element": "AI Inference Service",
+      "decision": "Create/use AI Inference Service",
+      "rationale": "Runs model inference and returns structured predictions.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-005",
+      "architectural_element": "AI Inference Service",
+      "decision": "Create/use AI Inference Service",
+      "rationale": "Runs model inference and returns structured predictions.",
+      "confidence": 0.88
+    },
+    {
+      "requirement_id": "REQ-005",
+      "architectural_element": "Audit Service",
+      "decision": "Create/use Audit Service",
+      "rationale": "Records security and business events for traceability.",
+      "confidence": 0.88
+    }
+  ],
+  "uml": {
+    "use_case": "flowchart LR\n    A[Software Architect / Developer] --> SYS((Requirements to Architecture System))\n    R[Reviewer] --> SYS\n    SYS --> U1[\"REQ-001: Users shall be able to register and log in securely.\"]\n    SYS --> U2[\"REQ-002: Users shall browse products and search the catalog.\"]\n    SYS --> U3[\"REQ-003: Users shall create orders and pay online.\"]\n    SYS --> U4[\"REQ-004: The system shall send an email notification when an ord\"]\n    SYS --> U5[\"REQ-005: The system shall support high availability and audit im\"]",
+    "class": "classDiagram\nclass Requirement\nclass Component\nclass Architecture\nclass TraceLink\nclass PipelineStage\nclass DiagramGenerator\nclass ReportExporter\nArchitecture o-- Component\nArchitecture --> Requirement\nTraceLink --> Requirement\nTraceLink --> Component\nPipelineStage --> Architecture\nArchitecture --> DiagramGenerator\nArchitecture --> ReportExporter\nclass UserService\nComponent <|-- UserService\nclass CatalogService\nComponent <|-- CatalogService\nclass SearchService\nComponent <|-- SearchService\nclass OrderService\nComponent <|-- OrderService\nclass NotificationService\nComponent <|-- NotificationService\nclass AIInferenceService\nComponent <|-- AIInferenceService\nclass AuditService\nComponent <|-- AuditService",
+    "sequence": "sequenceDiagram\nactor User\nparticipant API\nparticipant Parser\nparticipant Extractor\nparticipant Synthesizer\nparticipant Tracer\nparticipant UML\nparticipant Report\nUser->>API: Submit requirements\nAPI->>Parser: Parse\nParser-->>API: Structured requirements\nAPI->>Extractor: Extract components\nExtractor-->>API: Components\nAPI->>Synthesizer: Synthesize architecture\nSynthesizer-->>API: Architecture\nAPI->>Tracer: Build trace links\nTracer-->>API: Rationale trace\nAPI->>UML: Generate diagrams\nUML-->>API: Mermaid specs\nAPI->>Report: Build report\nReport-->>User: Architecture + trace + diagrams",
+    "activity": "flowchart TD\n    A([Start]) --> B[Upload / paste requirements]\n    B --> C[Parse and classify requirements]\n    C --> D[Extract components]\n    D --> E{Ambiguous requirements?}\n    E -- Yes --> F[Flag for clarification]\n    F --> C\n    E -- No --> G[Synthesize architecture]\n    G --> H[Generate rationale and trace links]\n    H --> I[Generate UML diagrams]\n    I --> J[Generate report]\n    J --> K{Reviewer changes?}\n    K -- Yes --> G\n    K -- No --> L([Approved output])"
+  },
+  "report_markdown": "# AI Assisted Requirements to Architecture Synthesis Report\n\n**Run ID:** `a72dba2771`\n\n## 1. Requirements\n\n| ID | Type | Confidence | Requirement |\n|---|---|---:|---|\n| REQ-001 | non_functional | 0.86 | Users shall be able to register and log in securely. |\n| REQ-002 | functional | 0.92 | Users shall browse products and search the catalog. |\n| REQ-003 | functional | 0.92 | Users shall create orders and pay online. |\n| REQ-004 | functional | 0.92 | The system shall send an email notification when an order is placed. |\n| REQ-005 | non_functional | 0.86 | The system shall support high availability and audit important actions. |\n\n## 2. Synthesized Architecture\n\n**Style:** Layered + Pipeline-based architecture\n\n### User Service\nManages user profiles and account data.\n- Requirements: REQ-001, REQ-002, REQ-003\n- Technologies: REST\n\n### Catalog Service\nProvides product/catalog information and search.\n- Requirements: REQ-002\n- Technologies: PostgreSQL, REST\n\n### Search Service\nIndexes and searches domain data.\n- Requirements: REQ-002\n- Technologies: Search Index\n\n### Order Service\nCreates and manages orders and their lifecycle.\n- Requirements: REQ-003, REQ-004\n- Technologies: PostgreSQL, REST\n\n### Notification Service\nSends email, SMS, or push notifications.\n- Requirements: REQ-004\n- Technologies: Message Queue\n\n### AI Inference Service\nRuns model inference and returns structured predictions.\n- Requirements: REQ-004, REQ-005\n- Technologies: ML Model, Python\n\n### Audit Service\nRecords security and business events for traceability.\n- Requirements: REQ-005\n- Technologies: Append-only Log\n\n## 3. Architectural Relationships\n\n- **Client \u2192 User Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 Catalog Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 Search Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 Order Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 Notification Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 AI Inference Service** (request) \u2014 Client submits or consumes the capability.\n- **Client \u2192 Audit Service** (request) \u2014 Client submits or consumes the capability.\n- **User Service \u2192 Catalog Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **Catalog Service \u2192 Search Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **Search Service \u2192 Order Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **Order Service \u2192 Notification Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **Notification Service \u2192 AI Inference Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **AI Inference Service \u2192 Audit Service** (service-call) \u2014 Pipeline/service dependency inferred from related capabilities.\n- **Order Service \u2192 Notification Service** (event) \u2014 Business events can trigger user notifications.\n\n## 4. Traceability / Rationale\n\n| Requirement | Element | Decision | Rationale |\n|---|---|---|---|\n| REQ-001 | User Service | Create/use User Service | Manages user profiles and account data. |\n| REQ-002 | User Service | Create/use User Service | Manages user profiles and account data. |\n| REQ-002 | Catalog Service | Create/use Catalog Service | Provides product/catalog information and search. |\n| REQ-002 | Search Service | Create/use Search Service | Indexes and searches domain data. |\n| REQ-003 | User Service | Create/use User Service | Manages user profiles and account data. |\n| REQ-003 | Order Service | Create/use Order Service | Creates and manages orders and their lifecycle. |\n| REQ-004 | Order Service | Create/use Order Service | Creates and manages orders and their lifecycle. |\n| REQ-004 | Notification Service | Create/use Notification Service | Sends email, SMS, or push notifications. |\n| REQ-004 | AI Inference Service | Create/use AI Inference Service | Runs model inference and returns structured predictions. |\n| REQ-005 | AI Inference Service | Create/use AI Inference Service | Runs model inference and returns structured predictions. |\n| REQ-005 | Audit Service | Create/use Audit Service | Records security and business events for traceability. |\n\n## 5. Design Patterns\n\n- Layered Architecture\n- Pipeline / Pipes and Filters\n- Strategy\n- Facade\n- Factory Method\n- Observer\n- Chain of Responsibility\n- Repository\n\n## 6. AI/LLM Pipeline Patterns\n\n- Prompt chaining\n- Tool use / function calling\n- Structured output generation\n- Routing\n- Reflection / self-critique\n- Evaluator-optimizer\n\n## 7. Evaluation\n\nThis demo records generated artifacts and traceability. The supplied project document defines accuracy, repeated-run consistency, and manual design-time reduction as evaluation goals, but provides no measured experimental results. Therefore this demo does not fabricate evaluation values.",
+  "warnings": []
+}
