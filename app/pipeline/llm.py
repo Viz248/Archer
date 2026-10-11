@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -14,9 +18,10 @@ from pydantic import BaseModel, Field
 from app.models import Architecture, Component, Relationship, Requirement, TraceLink
 
 try:
-    from openai import OpenAI, pydantic_function_tool
+    from openai import OpenAI, RateLimitError, pydantic_function_tool
 except ImportError:  # pragma: no cover - handled by runtime dependency install
     OpenAI = None
+    RateLimitError = None
     pydantic_function_tool = None
 
 
@@ -100,6 +105,8 @@ def _client() -> OpenAI:
     base_url = os.getenv("LLM_BASE_URL", "").strip()
     if base_url:
         kwargs["base_url"] = base_url
+    if _provider() == "Groq":
+        kwargs["max_retries"] = 0
     return OpenAI(**kwargs)
 
 
@@ -123,6 +130,98 @@ def _response_kwargs(*, text_format: type[BaseModel], max_output_tokens: int) ->
         "text_format": text_format,
         "max_output_tokens": max_output_tokens,
     }
+
+
+_OUTPUT_CONTRACTS = {
+    RequirementParseResult: (
+        'Return a JSON object with exactly this shape: '
+        '{"requirements":[{"id":"REQ-001","text":"...","type":"functional",'
+        '"confidence":0.9,"ambiguity_reason":""}]}. '
+        'Include every property shown; type must be functional, non_functional, or ambiguous.'
+    ),
+    ComponentExtractionResult: (
+        'Return a JSON object with exactly this shape: '
+        '{"components":[{"name":"...","responsibility":"...",'
+        '"requirement_ids":["REQ-001"],"technologies":[]}]}. '
+        'Include every property shown; use an empty list when there are no technologies or IDs.'
+    ),
+    ArchitectureSynthesisResult: (
+        'Return a JSON object with exactly these properties: '
+        '{"style":"...","components":[{"name":"...","responsibility":"...",'
+        '"requirement_ids":["REQ-001"],"technologies":[]}],'
+        '"relationships":[{"source":"...","target":"...","kind":"...","rationale":"..."}],'
+        '"patterns":[],"architectural_summary":"..."}. '
+        'Include every property shown and use empty lists when there are no entries.'
+    ),
+    RationaleResult: (
+        'Return a JSON object with exactly this shape: '
+        '{"trace_links":[{"requirement_id":"REQ-001","architectural_element":"...",'
+        '"decision":"...","rationale":"...","confidence":0.9}],'
+        '"warnings":[],"review_notes":[]}. '
+        'Include all three top-level properties and every trace-link property. '
+        'Return warnings:[] and review_notes:[] when there are none; never omit review_notes.'
+    ),
+}
+
+
+def _with_output_contract(prompt: str, text_format: type[BaseModel]) -> str:
+    return f"{prompt}\n\nOutput contract: {_OUTPUT_CONTRACTS[text_format]}"
+
+
+_MAX_GROQ_RATE_LIMIT_RETRIES = 3
+_GROQ_BACKOFF_BASE_SECONDS = 1.0
+_GROQ_BACKOFF_MAX_SECONDS = 8.0
+
+
+def _duration_seconds(value: str) -> float | None:
+    value = value.strip().lower()
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ms|s|sec|m|min|h)?", value)
+    if not match:
+        return None
+    amount = float(match.group(1))
+    unit = match.group(2)
+    multiplier = {"ms": 0.001, "m": 60, "min": 60, "h": 3600}.get(unit, 1)
+    return max(0.0, amount * multiplier)
+
+
+def _groq_retry_delay(error: Exception, attempt: int) -> float:
+    headers = getattr(getattr(error, "response", None), "headers", {}) or {}
+    server_delays = []
+    for name in ("retry-after-ms", "retry-after", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens"):
+        value = headers.get(name)
+        if value is None:
+            continue
+        value_text = str(value)
+        delay = _duration_seconds(value_text)
+        if name == "retry-after-ms" and delay is not None and re.fullmatch(r"\s*\d+(?:\.\d+)?\s*", value_text):
+            delay *= 0.001
+        if delay is None and name == "retry-after":
+            try:
+                retry_at = parsedate_to_datetime(str(value))
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                pass
+        if delay is not None:
+            server_delays.append(delay)
+    backoff = min(_GROQ_BACKOFF_BASE_SECONDS * (2 ** attempt), _GROQ_BACKOFF_MAX_SECONDS)
+    return max([backoff, *server_delays])
+
+
+def _groq_responses_parse(client: OpenAI, **kwargs):
+    for attempt in range(_MAX_GROQ_RATE_LIMIT_RETRIES + 1):
+        try:
+            return client.responses.parse(**kwargs)
+        except Exception as exc:
+            if (
+                _provider() != "Groq"
+                or RateLimitError is None
+                or not isinstance(exc, RateLimitError)
+                or attempt == _MAX_GROQ_RATE_LIMIT_RETRIES
+            ):
+                raise
+            time.sleep(_groq_retry_delay(exc, attempt))
 
 
 def _is_ollama() -> bool:
@@ -407,10 +506,10 @@ REQUIREMENTS:\n{text}"""
         return _ollama_structured_call(RequirementParseResult, prompt, max_output_tokens=2000)
 
     client = _client()
-    response = client.responses.parse(
+    response = _groq_responses_parse(client,
         model=_model(),
         instructions=SYSTEM_BASE,
-        input=prompt,
+        input=_with_output_contract(prompt, RequirementParseResult),
         **_response_kwargs(text_format=RequirementParseResult, max_output_tokens=2000),
     )
     if not response.output_parsed:
@@ -431,10 +530,10 @@ REQUIREMENTS:\n{payload}"""
         return _ollama_structured_call(ComponentExtractionResult, prompt, max_output_tokens=3000)
 
     client = _client()
-    response = client.responses.parse(
+    response = _groq_responses_parse(client,
         model=_model(),
         instructions=SYSTEM_BASE,
-        input=prompt,
+        input=_with_output_contract(prompt, ComponentExtractionResult),
         **_response_kwargs(text_format=ComponentExtractionResult, max_output_tokens=3000),
     )
     if not response.output_parsed:
@@ -482,10 +581,10 @@ REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
         result = _ollama_structured_call(ArchitectureSynthesisResult, prompt, max_output_tokens=6000)
     else:
         client = _client()
-        response = client.responses.parse(
+        response = _groq_responses_parse(client,
             model=_model(),
             instructions=SYSTEM_BASE,
-            input=prompt,
+            input=_with_output_contract(prompt, ArchitectureSynthesisResult),
             **_response_kwargs(text_format=ArchitectureSynthesisResult, max_output_tokens=6000),
         )
         if not response.output_parsed:
@@ -514,10 +613,10 @@ REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{com
         return _ollama_structured_call(RationaleResult, prompt, max_output_tokens=4000)
 
     client = _client()
-    response = client.responses.parse(
+    response = _groq_responses_parse(client,
         model=_model(),
         instructions=SYSTEM_BASE,
-        input=prompt,
+        input=_with_output_contract(prompt, RationaleResult),
         **_response_kwargs(text_format=RationaleResult, max_output_tokens=4000),
     )
     if not response.output_parsed:

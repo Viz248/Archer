@@ -1,3 +1,7 @@
+import httpx
+import pytest
+from pydantic import ValidationError
+
 from app.pipeline.engine import run_pipeline
 from app.pipeline import llm
 from app.models import Component, Requirement
@@ -59,6 +63,140 @@ def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
 
     assert result.style == "Layered"
     assert seen["max_output_tokens"] >= 4000
+    assert all(f'"{field}"' in seen["input"] for field in (
+        "style", "components", "relationships", "patterns", "architectural_summary"
+    ))
+
+
+@pytest.mark.parametrize(
+    ("result_model", "required_fields"),
+    [
+        (llm.RequirementParseResult, {"requirements"}),
+        (llm.ComponentExtractionResult, {"components"}),
+        (llm.ArchitectureSynthesisResult, {
+            "style", "components", "relationships", "patterns", "architectural_summary"
+        }),
+        (llm.RationaleResult, {"trace_links", "warnings", "review_notes"}),
+    ],
+)
+def test_stage_models_reject_missing_required_fields(result_model, required_fields):
+    with pytest.raises(ValidationError) as error:
+        result_model.model_validate({})
+
+    missing_fields = {item["loc"][0] for item in error.value.errors()}
+    assert missing_fields == required_fields
+
+
+def test_rationale_schema_rejects_missing_review_notes():
+    with pytest.raises(ValidationError) as error:
+        llm.RationaleResult.model_validate({"trace_links": [], "warnings": []})
+
+    assert any(item["loc"] == ("review_notes",) for item in error.value.errors())
+
+
+@pytest.mark.parametrize(
+    ("model", "payload", "missing_fields"),
+    [
+        (llm.LLMRequirement, {"id": "REQ-001"}, {"text", "type", "confidence"}),
+        (llm.LLMComponent, {"name": "Order Service"}, {"responsibility", "requirement_ids"}),
+        (llm.LLMRelationship, {"source": "A"}, {"target", "kind", "rationale"}),
+        (llm.LLMTraceLink, {"requirement_id": "REQ-001"}, {
+            "architectural_element", "decision", "rationale", "confidence"
+        }),
+    ],
+)
+def test_nested_stage_models_reject_missing_required_fields(model, payload, missing_fields):
+    with pytest.raises(ValidationError) as error:
+        model.model_validate(payload)
+
+    assert {item["loc"][0] for item in error.value.errors()} == missing_fields
+
+
+@pytest.mark.parametrize(
+    ("result_model", "required_fields"),
+    [
+        (llm.RequirementParseResult, ("requirements", "id", "text", "type", "confidence", "ambiguity_reason")),
+        (llm.ComponentExtractionResult, ("components", "name", "responsibility", "requirement_ids", "technologies")),
+        (llm.ArchitectureSynthesisResult, (
+            "style", "components", "relationships", "source", "target", "kind", "rationale",
+            "patterns", "architectural_summary",
+        )),
+        (llm.RationaleResult, (
+            "trace_links", "requirement_id", "architectural_element", "decision", "rationale",
+            "confidence", "warnings", "review_notes",
+        )),
+    ],
+)
+def test_stage_prompt_contracts_name_all_schema_fields(result_model, required_fields):
+    contract = llm._with_output_contract("stage prompt", result_model)
+
+    assert all(f'"{field}"' in contract for field in required_fields)
+    if result_model is llm.RationaleResult:
+        assert '"warnings":[]' in contract
+        assert '"review_notes":[]' in contract
+        assert "never omit review_notes" in contract
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected_wait"),
+    [({"retry-after": "2"}, 2.0), ({"retry-after-ms": "2500"}, 2.5)],
+)
+def test_groq_rate_limit_retry_honors_retry_after(monkeypatch, headers, expected_wait):
+    waits = []
+    response_value = object()
+
+    class FakeResponses:
+        calls = 0
+
+        def parse(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                response = httpx.Response(
+                    429,
+                    headers=headers,
+                    request=httpx.Request("POST", "https://api.groq.com/openai/v1/responses"),
+                )
+                raise llm.RateLimitError("rate limited", response=response, body={})
+            return response_value
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+
+    result = llm._groq_responses_parse(FakeClient(), model="test-model")
+
+    assert result is response_value
+    assert FakeClient.responses.calls == 2
+    assert waits == [expected_wait]
+
+
+def test_groq_rate_limit_retry_is_bounded_with_exponential_backoff(monkeypatch):
+    waits = []
+
+    class FakeResponses:
+        calls = 0
+
+        def parse(self, **kwargs):
+            self.calls += 1
+            response = httpx.Response(
+                429,
+                request=httpx.Request("POST", "https://api.groq.com/openai/v1/responses"),
+            )
+            raise llm.RateLimitError("rate limited", response=response, body={})
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+
+    with pytest.raises(llm.RateLimitError):
+        llm._groq_responses_parse(FakeClient(), model="test-model")
+
+    assert FakeClient.responses.calls == llm._MAX_GROQ_RATE_LIMIT_RETRIES + 1
+    assert waits == [1.0, 2.0, 4.0]
 
 
 def test_ollama_qwen3_uses_chat_completions_and_parses_json(monkeypatch):
