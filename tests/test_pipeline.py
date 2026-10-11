@@ -3,8 +3,9 @@ import pytest
 from pydantic import ValidationError
 
 from app.pipeline.engine import run_pipeline
+from app.pipeline import engine
 from app.pipeline import llm
-from app.models import Component, Requirement
+from app.models import Architecture, Component, Requirement, TraceLink
 
 
 def test_pipeline_generates_traceable_architecture():
@@ -22,6 +23,61 @@ def test_ambiguous_requirement_is_flagged():
     assert r.warnings
 
 
+def test_pipeline_exposes_partial_availability_and_recommended_patterns():
+    result = run_pipeline("The system shall support high availability.")
+
+    assert result.requirement_assessments[0].status == "partially_satisfied"
+    assert any(f.code == "availability_mechanism_unspecified" for f in result.evaluation_findings)
+    availability_finding = next(
+        finding for finding in result.evaluation_findings
+        if finding.code == "availability_mechanism_unspecified"
+    )
+    assert result.report_markdown.count(availability_finding.message) == 1
+    assert result.architecture.recommended_patterns
+    assert "Recommended, Not Yet Applied" in result.report_markdown
+    assert "### Recommended, Not Yet Applied\n\n- Strategy" in result.report_markdown
+    assert "- Strategy" not in result.report_markdown.split("## 5. Applied Design Patterns", 1)[1].split("### Recommended, Not Yet Applied", 1)[0]
+    assert "Actionable Findings" in result.report_markdown
+
+
+def test_live_pipeline_preserves_semantic_requirement_assessments(monkeypatch):
+    requirement = Requirement(
+        id="REQ-001", text="Users can place orders.", type="functional", confidence=0.9
+    )
+    component = Component(
+        id="COMP-001", name="Order Service", responsibility="Creates orders.", requirements=["REQ-001"]
+    )
+    architecture = Architecture(
+        style="Layered", components=[component], relationships=[], patterns=["Layered Architecture"]
+    )
+    trace = [TraceLink(
+        requirement_id="REQ-001",
+        architectural_element="Order Service",
+        decision="Use Order Service",
+        rationale="Creates orders.",
+        confidence=0.9,
+    )]
+    semantic_assessment = llm.LLMRequirementAssessment(
+        requirement_id="REQ-001",
+        status="partially_satisfied",
+        evidence="Order creation is modeled.",
+        gaps=["Order cancellation is not described."],
+    )
+    monkeypatch.setattr(engine, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        engine,
+        "run_llm_pipeline",
+        lambda _text: ([requirement], architecture, trace, [], ["Groq reflection"], [semantic_assessment]),
+    )
+
+    result = run_pipeline("Users can place orders.")
+
+    assert result.mode == "live-llm"
+    assert result.requirement_assessments[0].status == "partially_satisfied"
+    assert "Order cancellation is not described." in result.requirement_assessments[0].gaps
+    assert any(f.code == "requirement_partial" for f in result.evaluation_findings)
+
+
 def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
     seen = {}
 
@@ -36,6 +92,7 @@ def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
             )],
             relationships=[],
             patterns=["layered architecture"],
+            recommended_patterns=[],
             architectural_summary="A simple layered architecture for order processing.",
         )
 
@@ -64,8 +121,42 @@ def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
     assert result.style == "Layered"
     assert seen["max_output_tokens"] >= 4000
     assert all(f'"{field}"' in seen["input"] for field in (
-        "style", "components", "relationships", "patterns", "architectural_summary"
+        "style", "components", "relationships", "patterns", "recommended_patterns", "architectural_summary"
     ))
+
+
+@pytest.mark.parametrize(
+    ("pattern_label", "recommended_name"),
+    [
+        ("Recommended: Circuit Breaker", "Circuit Breaker"),
+        ("Circuit Breaker (recommended)", "Circuit Breaker"),
+        ("Circuit Breaker - recommended", "Circuit Breaker"),
+    ],
+)
+def test_synthesis_separates_prefixed_recommendations(monkeypatch, pattern_label, recommended_name):
+    result_payload = llm.ArchitectureSynthesisResult(
+        style="Layered",
+        components=[],
+        relationships=[],
+        patterns=["Layered Architecture", pattern_label],
+        recommended_patterns=["Circuit Breaker"],
+        architectural_summary="A layered design.",
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            return type("FakeResponse", (), {"output_parsed": result_payload})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
+    reqs = [Requirement(id="REQ-001", text="Users can place orders.", type="functional", confidence=1.0)]
+
+    result = llm._synthesize(reqs, [])
+
+    assert result.patterns == ["Layered Architecture"]
+    assert result.recommended_patterns == [recommended_name]
 
 
 @pytest.mark.parametrize(
@@ -74,9 +165,9 @@ def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
         (llm.RequirementParseResult, {"requirements"}),
         (llm.ComponentExtractionResult, {"components"}),
         (llm.ArchitectureSynthesisResult, {
-            "style", "components", "relationships", "patterns", "architectural_summary"
+            "style", "components", "relationships", "patterns", "recommended_patterns", "architectural_summary"
         }),
-        (llm.RationaleResult, {"trace_links", "warnings", "review_notes"}),
+        (llm.RationaleResult, {"trace_links", "requirement_assessments", "warnings", "review_notes"}),
     ],
 )
 def test_stage_models_reject_missing_required_fields(result_model, required_fields):
@@ -103,6 +194,9 @@ def test_rationale_schema_rejects_missing_review_notes():
         (llm.LLMTraceLink, {"requirement_id": "REQ-001"}, {
             "architectural_element", "decision", "rationale", "confidence"
         }),
+        (llm.LLMRequirementAssessment, {"requirement_id": "REQ-001"}, {
+            "status", "evidence", "gaps"
+        }),
     ],
 )
 def test_nested_stage_models_reject_missing_required_fields(model, payload, missing_fields):
@@ -119,11 +213,11 @@ def test_nested_stage_models_reject_missing_required_fields(model, payload, miss
         (llm.ComponentExtractionResult, ("components", "name", "responsibility", "requirement_ids", "technologies")),
         (llm.ArchitectureSynthesisResult, (
             "style", "components", "relationships", "source", "target", "kind", "rationale",
-            "patterns", "architectural_summary",
+            "patterns", "recommended_patterns", "architectural_summary",
         )),
         (llm.RationaleResult, (
             "trace_links", "requirement_id", "architectural_element", "decision", "rationale",
-            "confidence", "warnings", "review_notes",
+            "confidence", "requirement_assessments", "status", "evidence", "gaps", "warnings", "review_notes",
         )),
     ],
 )
@@ -245,7 +339,7 @@ def test_ollama_qwen3_uses_chat_completions_and_parses_json(monkeypatch):
 def test_ollama_qwen3_retry_handles_markdown_and_reasoning_variants(monkeypatch):
     payloads = [
         '```json\n{"components": ["Authentication Service", "Order Service"]}\n```',
-        '{"components": [{"name": "Authentication Service", "responsibility": "Login and access control", "requirement_ids": ["REQ-001"], "technologies": ["JWT"]}], "relationships": {"Authentication Service": {"Order Service": "Handles authentication before order creation"}}, "patterns": "API Gateway", "architectural_summary": "A layered flow."}',
+        '{"components": [{"name": "Authentication Service", "responsibility": "Login and access control", "requirement_ids": ["REQ-001"], "technologies": ["JWT"]}], "relationships": {"Authentication Service": {"Order Service": "Handles authentication before order creation"}}, "patterns": "API Gateway", "recommended_patterns": [], "architectural_summary": "A layered flow."}',
     ]
     calls = []
 

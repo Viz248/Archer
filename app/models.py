@@ -31,6 +31,7 @@ class Architecture:
     components: list[Component]
     relationships: list[Relationship]
     patterns: list[str]
+    recommended_patterns: list[str] = field(default_factory=list)
 
 @dataclass
 class TraceLink:
@@ -39,6 +40,23 @@ class TraceLink:
     decision: str
     rationale: str
     confidence: float
+
+@dataclass
+class RequirementAssessment:
+    requirement_id: str
+    status: Literal["mapped", "satisfied", "partially_satisfied", "unresolved"]
+    evidence: list[str] = field(default_factory=list)
+    gaps: list[str] = field(default_factory=list)
+
+@dataclass
+class EvaluationFinding:
+    code: str
+    severity: Literal["warning", "error"]
+    subject: str
+    requirement_ids: list[str]
+    message: str
+    impact: str
+    action: str
 
 @dataclass
 class PipelineResult:
@@ -51,6 +69,8 @@ class PipelineResult:
     warnings: list[str] = field(default_factory=list)
     mode: str = "deterministic-fallback"
     ai_stages: list[str] = field(default_factory=list)
+    requirement_assessments: list[RequirementAssessment] = field(default_factory=list)
+    evaluation_findings: list[EvaluationFinding] = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)

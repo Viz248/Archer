@@ -15,5 +15,12 @@ def synthesize(reqs: list[Requirement], components: list[Component]) -> Architec
                 rels.append(Relationship(source=c.name, target="Authentication Service", kind="auth", rationale="Protects service access using the authentication requirement."))
     if "Notification Service" in names:
         rels.append(Relationship(source="Order Service" if "Order Service" in names else components[0].name, target="Notification Service", kind="event", rationale="Business events can trigger user notifications."))
-    patterns = ["Layered Architecture", "Pipeline / Pipes and Filters", "Strategy", "Facade", "Factory Method", "Observer", "Chain of Responsibility", "Repository"]
-    return Architecture(style="Layered + Pipeline-based architecture", components=components, relationships=rels, patterns=patterns)
+    patterns = ["Layered Architecture", "Pipeline / Pipes and Filters"]
+    recommended_patterns = ["Strategy", "Facade", "Factory Method", "Observer", "Chain of Responsibility", "Repository"]
+    return Architecture(
+        style="Layered + Pipeline-based architecture",
+        components=components,
+        relationships=rels,
+        patterns=patterns,
+        recommended_patterns=recommended_patterns,
+    )

@@ -60,6 +60,7 @@ class ArchitectureSynthesisResult(BaseModel):
     components: list[LLMComponent]
     relationships: list[LLMRelationship]
     patterns: list[str]
+    recommended_patterns: list[str]
     architectural_summary: str
 
 
@@ -71,8 +72,16 @@ class LLMTraceLink(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class LLMRequirementAssessment(BaseModel):
+    requirement_id: str
+    status: Literal["satisfied", "partially_satisfied", "unresolved"]
+    evidence: str
+    gaps: list[str]
+
+
 class RationaleResult(BaseModel):
     trace_links: list[LLMTraceLink]
+    requirement_assessments: list[LLMRequirementAssessment]
     warnings: list[str]
     review_notes: list[str]
 
@@ -150,15 +159,16 @@ _OUTPUT_CONTRACTS = {
         '{"style":"...","components":[{"name":"...","responsibility":"...",'
         '"requirement_ids":["REQ-001"],"technologies":[]}],'
         '"relationships":[{"source":"...","target":"...","kind":"...","rationale":"..."}],'
-        '"patterns":[],"architectural_summary":"..."}. '
+        '"patterns":[],"recommended_patterns":[],"architectural_summary":"..."}. '
         'Include every property shown and use empty lists when there are no entries.'
     ),
     RationaleResult: (
         'Return a JSON object with exactly this shape: '
         '{"trace_links":[{"requirement_id":"REQ-001","architectural_element":"...",'
         '"decision":"...","rationale":"...","confidence":0.9}],'
-        '"warnings":[],"review_notes":[]}. '
-        'Include all three top-level properties and every trace-link property. '
+        '"requirement_assessments":[{"requirement_id":"REQ-001","status":"satisfied",'
+        '"evidence":"...","gaps":[]}],"warnings":[],"review_notes":[]}. '
+        'Include all four top-level properties, every trace-link property, and one assessment per requirement. '
         'Return warnings:[] and review_notes:[] when there are none; never omit review_notes.'
     ),
 }
@@ -209,7 +219,7 @@ def _groq_retry_delay(error: Exception, attempt: int) -> float:
     return max([backoff, *server_delays])
 
 
-def _groq_responses_parse(client: OpenAI, **kwargs):
+def _groq_responses_parse(client, **kwargs):
     for attempt in range(_MAX_GROQ_RATE_LIMIT_RETRIES + 1):
         try:
             return client.responses.parse(**kwargs)
@@ -573,7 +583,9 @@ def _synthesize(reqs: list[Requirement], components: list[Component]) -> Archite
     prompt = f"""Synthesize a high-level architecture from the parsed requirements and extracted components.
 Choose the architecture style based on the actual requirements. Define only relationships that
 are supported by the requirements or obvious architectural structure. Explain each relationship.
-Select a small set of established patterns that are genuinely useful here. Return the complete
+List a pattern under "patterns" only when its structure is represented by the components or
+relationships you return. Put useful patterns without concrete representation under
+"recommended_patterns"; do not imply that recommended patterns are implemented. Return the complete
 component list so it can be validated downstream.
 
 REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
@@ -590,23 +602,52 @@ REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
         if not response.output_parsed:
             raise RuntimeError("Model returned no structured architecture output.")
         result = response.output_parsed
-    # Tool-use stage: run a deterministic local architecture-pattern recommender on
-    # the model-selected patterns. This makes pattern rationale a separate, testable
-    # tool stage rather than burying everything in one prompt.
-    for pattern in result.patterns:
+    # Recommendations are analyzed locally but are not instantiated in the architecture.
+    prefixed_recommendations = [
+        _recommended_pattern_name(pattern)
+        for pattern in result.patterns
+        if _is_recommended_pattern(pattern)
+    ]
+    result.patterns = [
+        pattern for pattern in result.patterns
+        if not _is_recommended_pattern(pattern)
+    ]
+    result.recommended_patterns = list(dict.fromkeys(
+        [*result.recommended_patterns, *prefixed_recommendations]
+    ))
+    for pattern in result.recommended_patterns:
         _recommend_pattern(pattern, result.architectural_summary)
     return result
+
+
+def _is_recommended_pattern(pattern: str) -> bool:
+    return bool(re.search(
+        r"(?:\brecommended\b|\bnot yet applied\s*$)",
+        pattern.strip(),
+        re.IGNORECASE,
+    ))
+
+
+def _recommended_pattern_name(pattern: str) -> str:
+    value = re.sub(r"^recommended\s*:?\s*", "", pattern.strip(), flags=re.IGNORECASE)
+    value = re.sub(r"\s*(?:[-:(]\s*|is\s+)?recommended\s*[)\]]?\s*$", "", value, flags=re.IGNORECASE)
+    return re.sub(r"\s*[-:]?\s*not yet applied\s*$", "", value, flags=re.IGNORECASE).strip()
 
 
 def _rationale(reqs: list[Requirement], arch: Architecture) -> RationaleResult:
     req_text = "\n".join(f"{r.id}: {r.text}" for r in reqs)
     comp_text = "\n".join(f"- {c.name}: {c.responsibility} [{', '.join(c.requirements)}]" for c in arch.components)
     rel_text = "\n".join(f"- {x.source} -> {x.target} ({x.kind}): {x.rationale}" for x in arch.relationships)
-    prompt = f"""Act as the reflection/evaluator stage. Review the proposed architecture against the
-requirements. Create one or more trace links for every requirement. Each trace link must explain
-why the mapped architectural element exists. Identify concrete gaps, contradictions, unsupported
-assumptions, or ambiguous requirements in warnings. Review the architecture for consistency and
-requirement coverage; do not claim it is correct merely because it is plausible.
+    prompt = f"""Act as the semantic reflection/evaluator stage. Review the proposed architecture against
+the requirements. Create one or more trace links for every requirement, but do not treat a trace link
+as proof of satisfaction. Return exactly one requirement assessment per requirement, preserving its
+ID, with status "satisfied", "partially_satisfied", or "unresolved", specific evidence from the
+architecture, and a gaps list (empty only when no semantic gap remains). Identify concrete semantic
+gaps, contradictions, unsupported assumptions, or ambiguous requirements in actionable warnings.
+Each warning should identify its requirement/component/pattern/relationship, explain why it matters,
+and state what to clarify or change. Objective pattern representation, relationship endpoint/cycle,
+and explicit availability-mechanism checks run separately; do not duplicate those findings. Do not
+claim requirements are satisfied merely because they have trace links.
 
 REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{comp_text}\n\nRELATIONSHIPS:\n{rel_text}\n\nPATTERNS: {', '.join(arch.patterns)}"""
     if _is_ollama():
@@ -624,7 +665,7 @@ REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{com
     return response.output_parsed
 
 
-def run_llm_pipeline(text: str) -> tuple[list[Requirement], Architecture, list[TraceLink], list[str], list[str]]:
+def run_llm_pipeline(text: str) -> tuple[list[Requirement], Architecture, list[TraceLink], list[str], list[str], list[LLMRequirementAssessment]]:
     parsed = _parse(text)
     reqs = [Requirement(id=r.id, text=r.text, type=r.type, confidence=r.confidence) for r in parsed.requirements]
 
@@ -657,6 +698,7 @@ def run_llm_pipeline(text: str) -> tuple[list[Requirement], Architecture, list[T
         components=final_components,
         relationships=[Relationship(source=x.source, target=x.target, kind=x.kind, rationale=x.rationale) for x in synthesized.relationships],
         patterns=synthesized.patterns,
+        recommended_patterns=synthesized.recommended_patterns,
     )
 
     reviewed = _rationale(reqs, arch)
@@ -673,4 +715,4 @@ def run_llm_pipeline(text: str) -> tuple[list[Requirement], Architecture, list[T
         "LLM component extraction (structured output)",
         "LLM architecture synthesis + local pattern tool",
         "LLM reflection/evaluator-optimizer pass",
-    ]
+    ], reviewed.requirement_assessments
