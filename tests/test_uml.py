@@ -42,8 +42,9 @@ def test_component_diagram_uses_architecture_components_and_relationships():
     source = diagrams["architecture"]
 
     assert status["architecture"] == "available"
-    assert 'C0["Order Management Service: Creates and tracks orders."]' in source
-    assert 'C1["Payment Service: Processes payments."]' in source
+    assert 'C0["Order Management Service"]' in source
+    assert 'C1["Payment Service"]' in source
+    assert "Creates and tracks orders" not in source
     assert "C0 -->|service-call| C1" in source
 
 
@@ -115,6 +116,21 @@ def test_insufficient_workflow_information_does_not_create_sequence_or_activity(
     assert status["activity"].startswith("unavailable:")
 
 
+def test_dependency_edges_without_requirement_order_do_not_create_workflow_diagrams():
+    requirement = _requirement("REQ-009", "Users can register an account.")
+    architecture = _architecture(
+        [_component("Registration Service", ["REQ-009"]), _component("Profile Service", ["REQ-009"])],
+        [Relationship("Registration Service", "Profile Service", "service-call", "Registration depends on profiles.")],
+    )
+
+    diagrams, status = generate_diagrams([requirement], architecture)
+
+    assert diagrams["sequence"] == ""
+    assert diagrams["activity"] == ""
+    assert status["sequence"].startswith("unavailable:")
+    assert status["activity"].startswith("unavailable:")
+
+
 def test_sequence_and_activity_follow_explicit_requirement_cue_and_architecture_path():
     requirements = [_requirement(
         "REQ-001", "The system sends a notification when a booking is confirmed."
@@ -132,8 +148,8 @@ def test_sequence_and_activity_follow_explicit_requirement_cue_and_architecture_
     assert status["sequence"] == "available"
     assert status["activity"] == "available"
     assert 'P0 as "Booking Service"' in diagrams["sequence"]
-    assert "P0-)P1: event-publish" in diagrams["sequence"]
-    assert 'S0 -->|event-publish| S1' in diagrams["activity"]
+    assert "P0-)P1: Sends booking event." in diagrams["sequence"]
+    assert 'S0 -->|Sends booking event.| S1' in diagrams["activity"]
 
 def test_sequence_excludes_mapped_components_unrelated_to_scenario_text():
     requirement = _requirement("REQ-001",
@@ -157,7 +173,7 @@ def test_sequence_excludes_mapped_components_unrelated_to_scenario_text():
     assert "Order Service" in diagrams["sequence"]
     assert "Notification Service" in diagrams["sequence"]
     assert "AI Inference Service" not in diagrams["sequence"]
-    assert "event-publish" in diagrams["sequence"]
+    assert "P0-)P1: Order events trigger notification delivery." in diagrams["sequence"]
 
 
 def test_component_names_with_mermaid_special_characters_are_escaped():
@@ -202,6 +218,52 @@ def test_use_case_representation_excludes_nonfunctional_and_ambiguous_requiremen
     assert "REQ-003" not in diagrams["use_case"]
     assert "Software Architect" not in diagrams["use_case"]
     assert "Reviewer" not in diagrams["use_case"]
+    use_case_ids = set(re.findall(r"\b(U\d+)\s*\(", diagrams["use_case"]))
+    associated_ids = set(re.findall(r"\bA\d+\s+-->\s+(U\d+)\b", diagrams["use_case"]))
+    assert use_case_ids == associated_ids
+
+
+def test_system_trigger_notification_use_case_is_associated_to_its_actor():
+    requirement = _requirement(
+        "REQ-007", "The system shall send an email notification when an order is placed."
+    )
+
+    diagrams, _ = generate_diagrams([requirement], _architecture([]))
+    source = diagrams["use_case"]
+
+    assert 'A0(["System trigger"])' in source
+    assert "A0 --> U0" in source
+    assert "REQ-007" in source
+
+
+def test_every_use_case_has_an_explicit_actor_or_system_trigger_association():
+    requirements = [
+        _requirement("REQ-010", "Users shall place orders."),
+        _requirement("REQ-007", "The system shall send an email notification when an order is placed."),
+    ]
+
+    diagrams, _ = generate_diagrams(requirements, _architecture([]))
+    source = diagrams["use_case"]
+
+    assert 'A0(["Users"])' in source
+    assert 'A1(["System trigger"])' in source
+    assert "A0 --> U0" in source
+    assert "A1 --> U1" in source
+
+
+def test_long_component_and_use_case_labels_are_wrapped_and_escaped():
+    long_name = 'International Payment "Gateway" Service - Region One'
+    requirement = _requirement(
+        "REQ-008", "As a payments administrator, I want to reconcile international transactions."
+    )
+    architecture = _architecture([_component(long_name, ["REQ-008"])])
+
+    diagrams, _ = generate_diagrams([requirement], architecture)
+
+    assert "<br/>" in diagrams["architecture"]
+    assert "<br/>" in diagrams["use_case"]
+    assert long_name not in diagrams["architecture"]
+    assert "#quot;" in diagrams["architecture"]
 
 
 def test_mermaid_sources_follow_supported_diagram_grammar_for_representative_input():
@@ -215,6 +277,7 @@ def test_mermaid_sources_follow_supported_diagram_grammar_for_representative_inp
     assert diagrams["architecture"].startswith("flowchart TD\n")
     assert re.search(r"^\s*C\d+\s+-->\|[^|]+\|\s+C\d+$", diagrams["architecture"], re.MULTILINE)
     assert diagrams["use_case"].startswith("flowchart LR\n")
+    assert "client" in diagrams["use_case"].casefold()
     assert diagrams["sequence"].startswith("sequenceDiagram\n")
     assert re.search(r"^\s*P\d+->P\d+: .+$", diagrams["sequence"], re.MULTILINE)
     assert diagrams["activity"].startswith("flowchart TD\n")
@@ -240,5 +303,5 @@ def test_markdown_report_explains_unavailable_target_diagrams():
     assert "### System Sequence" in result.report_markdown
     assert "### System Activity / Workflow" in result.report_markdown
     assert "### Domain Class Diagram" in result.report_markdown
-    assert "Unavailable: Requirements and architecture relationships do not establish" in result.report_markdown
+    assert "Unavailable: No explicit requirement-supported interaction order" in result.report_markdown
     assert "Unavailable: Structured input contains services/components" in result.report_markdown

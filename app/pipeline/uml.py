@@ -7,9 +7,11 @@ _EXTERNAL_ENDPOINTS = {"client", "browser", "mobile client"}
 _SYSTEM_ACTORS = {"system", "the system", "application", "the application", "platform", "the platform"}
 _SEQUENCE_CUE = re.compile(r"\b(when|after|then|before|once|upon|following|subsequently)\b", re.IGNORECASE)
 _AS_A_ACTOR = re.compile(r"^as\s+(?:an?\s+)?([^,]+),", re.IGNORECASE)
+_USER_STORY_PREFIX = re.compile(r"^as\s+(?:an?\s+)?[^,]+,\s*i\s+want\s+to\s+", re.IGNORECASE)
 _SUBJECT_ACTOR = re.compile(
     r"^(?:the\s+|a\s+|an\s+)?([a-z][a-z0-9 _-]*?)\s+"
-    r"(?:shall|can|must|should|will|may)\b",
+    r"(?:shall|can|must|should|will|may|sends|submits|initiates|requests|receives|"
+    r"places|creates|browses|updates|cancels)\b",
     re.IGNORECASE,
 )
 
@@ -67,11 +69,11 @@ def architecture_diagram(architecture: Architecture) -> tuple[str, str]:
 
     lines = ["flowchart TD"]
     lines.extend(
-        f'    C{index}["{_mermaid_label(component.name)}: {_mermaid_label(component.responsibility)}"]'
+        f'    C{index}["{_wrapped_mermaid_label(component.name, 25)}"]'
         for index, component in enumerate(architecture.components)
     )
     lines.extend(
-        f'    X{index}(["External: {_mermaid_label(name)}"])'
+        f'    X{index}(["{_wrapped_mermaid_label(_external_label(name), 25)}"])'
         for index, name in enumerate(external_names)
     )
 
@@ -101,18 +103,19 @@ def architecture_diagram(architecture: Architecture) -> tuple[str, str]:
 
 def use_case_diagram(requirements: list[Requirement]) -> tuple[str, str]:
     functional_requirements = [requirement for requirement in requirements if requirement.type == "functional"]
-    if not functional_requirements:
-        return "", "unavailable: No functional requirements were parsed."
+    use_cases = [(requirement, _explicit_actor(requirement.text)) for requirement in functional_requirements]
+    use_cases = [(requirement, actor) for requirement, actor in use_cases if actor]
+    omitted = len(functional_requirements) - len(use_cases)
+    if not use_cases:
+        return "", "unavailable: No functional requirement has an explicit user actor or system trigger."
 
     actors: dict[str, tuple[str, int]] = {}
     requirement_actors: dict[str, str] = {}
-    for requirement in functional_requirements:
-        actor = _explicit_actor(requirement.text)
-        if actor:
-            normalized = actor.casefold()
-            if normalized not in actors:
-                actors[normalized] = (actor, len(actors))
-            requirement_actors[requirement.id] = f"A{actors[normalized][1]}"
+    for requirement, actor in use_cases:
+        normalized = actor.casefold()
+        if normalized not in actors:
+            actors[normalized] = (actor, len(actors))
+        requirement_actors[requirement.id] = f"A{actors[normalized][1]}"
 
     lines = ["flowchart LR"]
     if actors:
@@ -121,22 +124,22 @@ def use_case_diagram(requirements: list[Requirement]) -> tuple[str, str]:
             for actor, index in actors.values()
         )
     lines.append('    subgraph TARGET["Target system use-case representation"]')
-    for index, requirement in enumerate(functional_requirements):
-        label = f"{requirement.id}: {requirement.text}"
-        lines.append(f'        U{index}(["{_mermaid_label(label)}"])')
+    for index, (requirement, _) in enumerate(use_cases):
+        label = f"{requirement.id}: {_use_case_action(requirement.text)}"
+        lines.append(f'        U{index}(["{_wrapped_mermaid_label(label, 34)}"])')
     lines.append("    end")
-    for index, requirement in enumerate(functional_requirements):
+    for index, (requirement, _) in enumerate(use_cases):
         actor_id = requirement_actors.get(requirement.id)
         if actor_id:
             lines.append(f"    {actor_id} --> U{index}")
-    return "\n".join(lines), "available"
+    status = "available" if not omitted else f"available; omitted {omitted} functional requirement(s) without an explicit actor/trigger"
+    return "\n".join(lines), status
 
 
 def sequence_diagram(path: list[Relationship]) -> tuple[str, str]:
     if not path:
         return "", (
-            "unavailable: Requirements and architecture relationships do not establish an ordered "
-            "multi-component scenario."
+            "unavailable: No explicit requirement-supported interaction order connects multiple components."
         )
 
     participants = []
@@ -146,12 +149,13 @@ def sequence_diagram(path: list[Relationship]) -> tuple[str, str]:
                 participants.append(name)
     ids = {name: f"P{index}" for index, name in enumerate(participants)}
     lines = ["sequenceDiagram"]
-    lines.extend(f'    participant {ids[name]} as "{_mermaid_label(name)}"' for name in participants)
+    lines.extend(f'    participant {ids[name]} as "{_wrapped_mermaid_label(name, 22)}"' for name in participants)
     for relationship in path:
         arrow = "-)" if _is_async_relationship(relationship.kind) else "->"
+        message = _interaction_message(relationship)
         lines.append(
             f'    {ids[relationship.source]}{arrow}{ids[relationship.target]}: '
-            f'{_mermaid_label(relationship.kind)}'
+            f'{_wrapped_mermaid_label(message, 58)}'
         )
     return "\n".join(lines), "available"
 
@@ -159,19 +163,18 @@ def sequence_diagram(path: list[Relationship]) -> tuple[str, str]:
 def activity_diagram(path: list[Relationship]) -> tuple[str, str]:
     if not path:
         return "", (
-            "unavailable: Requirements and directed architecture relationships do not establish "
-            "a target-system workflow."
+            "unavailable: No explicit requirement-supported sequence establishes a target-system workflow."
         )
 
     nodes = [path[0].source] + [relationship.target for relationship in path]
     ids = {name: f"S{index}" for index, name in enumerate(nodes)}
     lines = ["flowchart TD", '    START(["Start"])']
-    lines.extend(f'    {ids[name]}["{_mermaid_label(name)}"]' for name in nodes)
+    lines.extend(f'    {ids[name]}["{_wrapped_mermaid_label(name, 25)}"]' for name in nodes)
     lines.append('    FINISH(["End"])')
     lines.append(f"    START --> {ids[nodes[0]]}")
     for relationship in path:
         lines.append(
-            f"    {ids[relationship.source]} -->|{_mermaid_label(relationship.kind)}| "
+            f"    {ids[relationship.source]} -->|{_wrapped_mermaid_label(_interaction_message(relationship), 58)}| "
             f'{ids[relationship.target]}'
         )
     lines.append(f"    {ids[nodes[-1]]} --> FINISH")
@@ -235,6 +238,15 @@ def _sequence_path(requirements: list[Requirement], architecture: Architecture) 
         for relationship in architecture.relationships:
             source = relationship.source.strip().casefold() if isinstance(relationship.source, str) else ""
             target = relationship.target.strip().casefold() if isinstance(relationship.target, str) else ""
+            kind = relationship.kind.casefold().replace("_", "-")
+            event_interaction = _is_async_relationship(kind)
+            if kind not in {"request", "service-call", "event", "audit-write"} and not event_interaction:
+                continue
+            if not _relationship_supported_by_requirement(relationship, requirement):
+                continue
+            source_is_external = _is_external_endpoint(relationship.source)
+            if source_is_external and target in relevant_nodes and target in mapped and kind == "request":
+                return [relationship]
             if source not in components or target not in components:
                 continue
             if source in relevant_nodes and target in relevant_nodes and (source in mapped or target in mapped):
@@ -335,13 +347,45 @@ def _explicit_actor(text: str) -> str:
         return ""
     actor = " ".join(match.group(1).strip().split())
     if actor.casefold() in _SYSTEM_ACTORS:
-        return ""
+        return "System trigger"
     return actor
+
+
+def _use_case_action(text: str) -> str:
+    action = _USER_STORY_PREFIX.sub("", text.strip())
+    subject = _SUBJECT_ACTOR.match(action)
+    if subject:
+        action = action[subject.end():].strip()
+    action = re.sub(r"^(?:be able to|to)\s+", "", action, flags=re.IGNORECASE)
+    action = " ".join(action.split()).rstrip(" .!?;")
+    return action[:1].upper() + action[1:] if action else "Functional capability"
 
 
 def _is_external_endpoint(name: str) -> bool:
     normalized = name.strip().casefold()
-    return normalized in _EXTERNAL_ENDPOINTS or normalized.startswith("external ")
+    return normalized in _EXTERNAL_ENDPOINTS or normalized.startswith(("external ", "external:"))
+
+
+def _external_label(name: str) -> str:
+    return re.sub(r"^external\s*:\s*|^external\s+", "", name.strip(), flags=re.IGNORECASE)
+
+
+def _interaction_message(relationship: Relationship) -> str:
+    if _is_async_relationship(relationship.kind):
+        source_requirement = relationship.rationale.rsplit(": ", 1)[-1]
+        triggers = list(_SEQUENCE_CUE.finditer(source_requirement))
+        if triggers:
+            trigger = triggers[-1]
+            return f"Event: {trigger.group(0).casefold()} {source_requirement[trigger.end():].strip(' .!?')}"
+    return relationship.rationale.strip() or relationship.kind
+
+
+def _relationship_supported_by_requirement(relationship: Relationship, requirement: Requirement) -> bool:
+    if requirement.id.casefold() in relationship.rationale.casefold():
+        return True
+    requirement_terms = _content_terms(requirement.text)
+    rationale_terms = _content_terms(relationship.rationale)
+    return bool(requirement_terms & rationale_terms)
 
 
 def _is_async_relationship(kind: str) -> bool:
@@ -355,3 +399,19 @@ def _mermaid_label(value: str) -> str:
         "}": "#125;", "`": "#96;", "\\": "#92;", "\n": " ", "\r": " ",
     }
     return "".join(replacements.get(character, character) for character in str(value))
+
+
+def _wrapped_mermaid_label(value: str, width: int) -> str:
+    words = str(value).split()
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if current and len(candidate) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return "<br/>".join(_mermaid_label(line) for line in lines)
