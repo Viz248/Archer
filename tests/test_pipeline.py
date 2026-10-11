@@ -33,6 +33,15 @@ def test_pipeline_exposes_partial_availability_and_recommended_patterns():
         if finding.code == "availability_mechanism_unspecified"
     )
     assert result.report_markdown.count(availability_finding.message) == 1
+    assert availability_finding.finding_id in result.requirement_assessments[0].finding_ids
+    assert f"| REQ-001 | partially_satisfied |" in result.report_markdown
+    assert f"| {availability_finding.finding_id} | warning |" in result.report_markdown
+    assert all(gap not in result.report_markdown for gap in result.requirement_assessments[0].gaps)
+    finding_warning = next(
+        warning for warning in result.warnings
+        if warning.startswith(f"[{availability_finding.finding_id}]")
+    )
+    assert finding_warning not in result.report_markdown
     assert result.architecture.recommended_patterns
     assert "Recommended, Not Yet Applied" in result.report_markdown
     assert "### Recommended, Not Yet Applied\n\n- Strategy" in result.report_markdown
@@ -120,9 +129,256 @@ def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
 
     assert result.style == "Layered"
     assert seen["max_output_tokens"] >= 4000
-    assert all(f'"{field}"' in seen["input"] for field in (
-        "style", "components", "relationships", "patterns", "recommended_patterns", "architectural_summary"
+    assert all(field in seen["input"] for field in (
+        "style:string", "components:list", "relationships:list", "patterns:list[string]",
+        "recommended_patterns:list[string]", "architectural_summary:string",
     ))
+    assert "Do not provide chain-of-thought" in seen["instructions"]
+    assert "Copy each pair exactly" in seen["input"]
+
+
+def test_synthesis_retries_once_when_groq_rejects_prose_output(monkeypatch):
+    architecture = llm.ArchitectureSynthesisResult(
+        style="Layered",
+        components=[],
+        relationships=[],
+        patterns=[],
+        recommended_patterns=[],
+        architectural_summary="A layered architecture.",
+    )
+    calls = []
+
+    class ProviderParseError(Exception):
+        status_code = 400
+        body = {
+            "error": {
+                "code": "output_parse_failed",
+                "message": 'I will reason through this first. Example: {"style":"Layered"}',
+            }
+        }
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise ProviderParseError("output_parse_failed")
+            return type("FakeResponse", (), {"output_parsed": architecture})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+
+    response = llm._groq_responses_parse(
+        FakeClient(),
+        stage="architecture synthesis",
+        model="configured-model",
+        instructions="Return structured architecture only.",
+        input="Synthesize the candidates.",
+        text_format=llm.ArchitectureSynthesisResult,
+        max_output_tokens=6000,
+    )
+
+    assert response.output_parsed is architecture
+    assert len(calls) == 2
+    assert calls[1]["input"] != calls[0]["input"]
+    assert "Return only the structured object" in calls[1]["input"]
+    assert calls[0]["text_format"] is llm.ArchitectureSynthesisResult
+    assert calls[1]["text_format"] is llm.ArchitectureSynthesisResult
+
+
+def test_permanent_groq_schema_error_is_not_retried(monkeypatch):
+    class ProviderSchemaError(Exception):
+        status_code = 400
+        body = {"error": {"code": "invalid_json_schema", "message": "Schema is unsupported."}}
+
+    class FakeResponses:
+        calls = 0
+
+        def parse(self, **kwargs):
+            self.calls += 1
+            raise ProviderSchemaError("invalid_json_schema")
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+
+    with pytest.raises(RuntimeError, match="architecture synthesis"):
+        llm._groq_responses_parse(
+            FakeClient(), stage="architecture synthesis", input="prompt", text_format=llm.ArchitectureSynthesisResult
+        )
+
+    assert FakeClient.responses.calls == 1
+
+
+def test_component_extraction_rejects_unknown_requirement_ids(monkeypatch):
+    output = llm.ComponentExtractionResult(components=[llm.LLMComponent(
+        name="Order Service",
+        responsibility="Creates orders.",
+        requirement_ids=["REQ-999"],
+        technologies=[],
+    )])
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            return type("FakeResponse", (), {"output_parsed": output})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm, "_is_ollama", lambda: False)
+    reqs = [Requirement(id="REQ-001", text="Users can place orders.", type="functional", confidence=0.9)]
+
+    with pytest.raises(ValueError, match="REQ-999"):
+        llm._components(reqs)
+
+
+def test_architecture_synthesis_cannot_reassign_component_requirement_ids(monkeypatch):
+    output = llm.ArchitectureSynthesisResult(
+        style="Layered",
+        components=[llm.LLMComponent(
+            name="Order Service",
+            responsibility="Creates orders.",
+            requirement_ids=["REQ-002"],
+            technologies=[],
+        )],
+        relationships=[],
+        patterns=[],
+        recommended_patterns=[],
+        architectural_summary="A layered design.",
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            return type("FakeResponse", (), {"output_parsed": output})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm, "_is_ollama", lambda: False)
+    reqs = [Requirement(id="REQ-001", text="Users can place orders.", type="functional", confidence=0.9)]
+    candidates = [Component(
+        id="COMP-001", name="Order Service", responsibility="Creates orders.", requirements=["REQ-001"]
+    )]
+
+    with pytest.raises(ValueError, match="must preserve candidate requirement IDs"):
+        llm._synthesize(reqs, candidates)
+
+
+def test_architecture_synthesis_cannot_reorder_candidate_requirement_ids():
+    candidates = [Component(
+        id="COMP-001", name="Order Service", responsibility="Creates orders.",
+        requirements=["REQ-001", "REQ-002"],
+    )]
+    synthesized = [llm.LLMComponent(
+        name="Order Service", responsibility="Creates orders.",
+        requirement_ids=["REQ-002", "REQ-001"], technologies=[],
+    )]
+
+    with pytest.raises(ValueError, match="must preserve candidate requirement IDs"):
+        llm._validate_synthesis_component_mappings(candidates, synthesized)
+
+
+def test_reflection_rejects_unknown_requirement_ids(monkeypatch):
+    output = llm.RationaleResult(
+        trace_links=[llm.LLMTraceLink(
+            requirement_id="REQ-999", architectural_element="Order Service", decision="Create service",
+            rationale="It creates orders.", confidence=0.9,
+        )],
+        requirement_assessments=[llm.LLMRequirementAssessment(
+            requirement_id="REQ-001", status="satisfied", evidence="The service creates orders.", gaps=[]
+        )],
+        warnings=[],
+        review_notes=[],
+    )
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            return type("FakeResponse", (), {"output_parsed": output})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm, "_is_ollama", lambda: False)
+    reqs = [Requirement(id="REQ-001", text="Users can place orders.", type="functional", confidence=0.9)]
+    arch = Architecture(
+        style="Layered",
+        components=[Component("COMP-001", "Order Service", "Creates orders.", ["REQ-001"])],
+        relationships=[],
+        patterns=[],
+    )
+
+    with pytest.raises(ValueError, match="REQ-999"):
+        llm._rationale(reqs, arch)
+
+
+def test_structured_outputs_keep_missing_schema_fields_invalid():
+    with pytest.raises(ValidationError) as error:
+        llm.ArchitectureSynthesisResult.model_validate({
+            "style": "Layered",
+            "components": [],
+            "relationships": [],
+            "patterns": [],
+            "architectural_summary": "A design.",
+        })
+
+    assert any(item["loc"] == ("recommended_patterns",) for item in error.value.errors())
+
+
+def test_valid_structured_outputs_continue_through_full_llm_pipeline(monkeypatch):
+    requirement = llm.LLMRequirement(
+        id="REQ-001", text="Users can place orders.", type="functional", confidence=0.9
+    )
+    parsed_by_schema = {
+        llm.RequirementParseResult: llm.RequirementParseResult(requirements=[requirement]),
+        llm.ComponentExtractionResult: llm.ComponentExtractionResult(components=[llm.LLMComponent(
+            name="Order Service", responsibility="Creates orders.", requirement_ids=["REQ-001"], technologies=[]
+        )]),
+        llm.ArchitectureSynthesisResult: llm.ArchitectureSynthesisResult(
+            style="Layered",
+            components=[llm.LLMComponent(
+                name="Order Service", responsibility="Creates orders.", requirement_ids=["REQ-001"], technologies=[]
+            )],
+            relationships=[], patterns=[], recommended_patterns=[], architectural_summary="Orders are handled in a layer.",
+        ),
+        llm.RationaleResult: llm.RationaleResult(
+            trace_links=[llm.LLMTraceLink(
+                requirement_id="REQ-001", architectural_element="Order Service", decision="Create service",
+                rationale="It creates orders.", confidence=0.9,
+            )],
+            requirement_assessments=[llm.LLMRequirementAssessment(
+                requirement_id="REQ-001", status="satisfied", evidence="The service creates orders.", gaps=[]
+            )],
+            warnings=[], review_notes=[],
+        ),
+    }
+
+    class FakeResponses:
+        def parse(self, **kwargs):
+            return type("FakeResponse", (), {"output_parsed": parsed_by_schema[kwargs["text_format"]]})()
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    monkeypatch.setattr(llm, "_client", lambda: FakeClient())
+    monkeypatch.setattr(llm, "_provider", lambda: "Groq")
+    monkeypatch.setattr(llm, "_is_ollama", lambda: False)
+
+    reqs, architecture, trace, warnings, stages, assessments = llm.run_llm_pipeline("Users can place orders.")
+
+    assert [item.id for item in reqs] == ["REQ-001"]
+    assert architecture.components[0].requirements == ["REQ-001"]
+    assert trace[0].requirement_id == "REQ-001"
+    assert assessments[0].requirement_id == "REQ-001"
+    assert warnings == []
+    assert len(stages) == 4
 
 
 @pytest.mark.parametrize(
@@ -224,7 +480,10 @@ def test_nested_stage_models_reject_missing_required_fields(model, payload, miss
 def test_stage_prompt_contracts_name_all_schema_fields(result_model, required_fields):
     contract = llm._with_output_contract("stage prompt", result_model)
 
-    assert all(f'"{field}"' in contract for field in required_fields)
+    if result_model is llm.ArchitectureSynthesisResult:
+        assert all(field in contract for field in required_fields)
+    else:
+        assert all(f'"{field}"' in contract for field in required_fields)
     if result_model is llm.RationaleResult:
         assert '"warnings":[]' in contract
         assert '"review_notes":[]' in contract

@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field, asdict
+import hashlib
+import json
 from typing import Literal
 
 ReqType = Literal["functional", "non_functional", "ambiguous"]
@@ -47,6 +49,7 @@ class RequirementAssessment:
     status: Literal["mapped", "satisfied", "partially_satisfied", "unresolved"]
     evidence: list[str] = field(default_factory=list)
     gaps: list[str] = field(default_factory=list)
+    finding_ids: list[str] = field(default_factory=list)
 
 @dataclass
 class EvaluationFinding:
@@ -57,6 +60,25 @@ class EvaluationFinding:
     message: str
     impact: str
     action: str
+    finding_id: str = ""
+
+    def __post_init__(self):
+        if self.finding_id:
+            return
+        normalize = lambda value: " ".join(value.casefold().split())
+        identity = [
+            normalize(self.code),
+            normalize(self.severity),
+            sorted(normalize(item) for item in self.requirement_ids),
+            normalize(self.subject),
+            normalize(self.message),
+            normalize(self.impact),
+            normalize(self.action),
+        ]
+        digest = hashlib.sha256(
+            json.dumps(identity, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:12].upper()
+        self.finding_id = f"EV-{digest}"
 
 @dataclass
 class PipelineResult:

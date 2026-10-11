@@ -94,8 +94,9 @@ class PatternRecommendation(BaseModel):
 SYSTEM_BASE = """You are an experienced software architect assisting a requirements-to-architecture
 synthesis system. Be conservative: never invent a requirement that is not present.
 Prefer high-level architecture components over implementation-level classes.
-Preserve requirement IDs exactly. Produce concise, reviewable reasoning. The goal is
-an explainable architecture, not a generic template. Different requirement sets should
+Preserve requirement IDs exactly. Follow the requested structured schema exactly. Do not include
+analysis, preambles, examples, Markdown, or other prose outside the structured response.
+The goal is an explainable architecture, not a generic template. Different requirement sets should
 produce materially different architectures when their capabilities or quality attributes differ.
 """
 
@@ -155,12 +156,11 @@ _OUTPUT_CONTRACTS = {
         'Include every property shown; use an empty list when there are no technologies or IDs.'
     ),
     ArchitectureSynthesisResult: (
-        'Return a JSON object with exactly these properties: '
-        '{"style":"...","components":[{"name":"...","responsibility":"...",'
-        '"requirement_ids":["REQ-001"],"technologies":[]}],'
-        '"relationships":[{"source":"...","target":"...","kind":"...","rationale":"..."}],'
-        '"patterns":[],"recommended_patterns":[],"architectural_summary":"..."}. '
-        'Include every property shown and use empty lists when there are no entries.'
+        "Required fields: style:string; components:list of {name:string, responsibility:string, "
+        "requirement_ids:list[string], technologies:list[string]}; relationships:list of "
+        "{source:string, target:string, kind:string, rationale:string}; patterns:list[string]; "
+        "recommended_patterns:list[string]; architectural_summary:string. Use empty lists when needed. "
+        "Do not include prose outside the structured object."
     ),
     RationaleResult: (
         'Return a JSON object with exactly this shape: '
@@ -219,19 +219,61 @@ def _groq_retry_delay(error: Exception, attempt: int) -> float:
     return max([backoff, *server_delays])
 
 
-def _groq_responses_parse(client, **kwargs):
-    for attempt in range(_MAX_GROQ_RATE_LIMIT_RETRIES + 1):
+def _structured_output_error_code(error: Exception) -> str | None:
+    code = getattr(error, "code", None)
+    if code:
+        return str(code)
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        detail = body.get("error", body)
+        if isinstance(detail, dict) and detail.get("code"):
+            return str(detail["code"])
+    return None
+
+
+def _groq_responses_parse(client, *, stage: str = "structured output", **kwargs):
+    rate_limit_retries = 0
+    parse_retry_used = False
+    request_kwargs = dict(kwargs)
+    while True:
         try:
-            return client.responses.parse(**kwargs)
+            return client.responses.parse(**request_kwargs)
         except Exception as exc:
             if (
-                _provider() != "Groq"
-                or RateLimitError is None
-                or not isinstance(exc, RateLimitError)
-                or attempt == _MAX_GROQ_RATE_LIMIT_RETRIES
+                _provider() == "Groq"
+                and getattr(exc, "status_code", None) == 400
+                and _structured_output_error_code(exc) == "output_parse_failed"
+                and not parse_retry_used
             ):
-                raise
-            time.sleep(_groq_retry_delay(exc, attempt))
+                stage_constraint = (
+                    " Copy each candidate component name and requirement_ids exactly."
+                    if stage == "architecture synthesis" else " Preserve requirement IDs exactly."
+                )
+                request_kwargs["instructions"] = (
+                    f"Return only the {stage} object required by the structured schema. "
+                    "Do not output analysis, reasoning, examples, Markdown, or text outside that object."
+                    + stage_constraint
+                )
+                request_kwargs["input"] = (
+                    f"{request_kwargs.get('input', '')}\n\n"
+                    "Correction: The previous output included text outside the required structured object. "
+                    "Return only the structured object; do not explain your reasoning or include a JSON example. "
+                    + stage_constraint.strip()
+                )
+                parse_retry_used = True
+                continue
+            if (
+                _provider() == "Groq"
+                and RateLimitError is not None
+                and isinstance(exc, RateLimitError)
+                and rate_limit_retries < _MAX_GROQ_RATE_LIMIT_RETRIES
+            ):
+                time.sleep(_groq_retry_delay(exc, rate_limit_retries))
+                rate_limit_retries += 1
+                continue
+            if getattr(exc, "status_code", None) == 400 and stage != "structured output":
+                raise RuntimeError(f"{_provider()} {stage} structured output failed: {exc}") from exc
+            raise
 
 
 def _is_ollama() -> bool:
@@ -517,6 +559,7 @@ REQUIREMENTS:\n{text}"""
 
     client = _client()
     response = _groq_responses_parse(client,
+        stage="requirement parsing",
         model=_model(),
         instructions=SYSTEM_BASE,
         input=_with_output_contract(prompt, RequirementParseResult),
@@ -541,6 +584,7 @@ REQUIREMENTS:\n{payload}"""
 
     client = _client()
     response = _groq_responses_parse(client,
+        stage="component extraction",
         model=_model(),
         instructions=SYSTEM_BASE,
         input=_with_output_contract(prompt, ComponentExtractionResult),
@@ -548,7 +592,16 @@ REQUIREMENTS:\n{payload}"""
     )
     if not response.output_parsed:
         raise RuntimeError("Model returned no structured component output.")
-    return response.output_parsed
+    result = response.output_parsed
+    known_requirement_ids = {requirement.id for requirement in reqs}
+    for component in result.components:
+        unknown_ids = sorted(set(component.requirement_ids) - known_requirement_ids)
+        if unknown_ids:
+            raise ValueError(
+                f"Component extraction assigned unknown requirement IDs to {component.name}: "
+                f"{', '.join(unknown_ids)}."
+            )
+    return result
 
 
 def _recommend_pattern(pattern: str, context: str) -> PatternRecommendation:
@@ -580,13 +633,15 @@ def _synthesize(reqs: list[Requirement], components: list[Component]) -> Archite
     comp_text = "\n".join(
         f"{c.name}: {c.responsibility} (requirements: {', '.join(_component_requirement_ids(c))})" for c in components
     )
-    prompt = f"""Synthesize a high-level architecture from the parsed requirements and extracted components.
-Choose the architecture style based on the actual requirements. Define only relationships that
-are supported by the requirements or obvious architectural structure. Explain each relationship.
-List a pattern under "patterns" only when its structure is represented by the components or
-relationships you return. Put useful patterns without concrete representation under
-"recommended_patterns"; do not imply that recommended patterns are implemented. Return the complete
-component list so it can be validated downstream.
+    prompt = f"""Produce the architecture object from the requirements and candidate components.
+Choose a suitable style and define supported relationships with a concise rationale in each
+relationship.rationale field. List only represented patterns under "patterns"; place useful but
+unrepresented patterns under "recommended_patterns".
+
+Candidate component names and requirement_ids are authoritative. Copy each pair exactly; do not
+create, remove, rename, or move component requirement IDs. The output component list must contain
+each candidate exactly once. Requirement text is context, not permission to remap IDs. Return only
+the requested structured object; do not include analysis, reasoning, examples, or prose outside it.
 
 REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
     if _is_ollama():
@@ -594,14 +649,20 @@ REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
     else:
         client = _client()
         response = _groq_responses_parse(client,
+            stage="architecture synthesis",
             model=_model(),
-            instructions=SYSTEM_BASE,
+            instructions=(
+                "Return only the architecture object matching the structured schema. "
+                "Do not provide chain-of-thought, analysis, examples, Markdown, or prose outside it. "
+                "Copy component requirement_ids from the corresponding candidate exactly."
+            ),
             input=_with_output_contract(prompt, ArchitectureSynthesisResult),
             **_response_kwargs(text_format=ArchitectureSynthesisResult, max_output_tokens=6000),
         )
         if not response.output_parsed:
             raise RuntimeError("Model returned no structured architecture output.")
         result = response.output_parsed
+    _validate_synthesis_component_mappings(components, result.components)
     # Recommendations are analyzed locally but are not instantiated in the architecture.
     prefixed_recommendations = [
         _recommended_pattern_name(pattern)
@@ -618,6 +679,27 @@ REQUIREMENTS:\n{req_text}\n\nCANDIDATE COMPONENTS:\n{comp_text}"""
     for pattern in result.recommended_patterns:
         _recommend_pattern(pattern, result.architectural_summary)
     return result
+
+
+def _validate_synthesis_component_mappings(
+    candidates: list[Component],
+    synthesized: list[LLMComponent],
+) -> None:
+    candidate_by_name = {component.name.casefold(): component for component in candidates}
+    if len(candidate_by_name) != len(candidates):
+        raise ValueError("Candidate components must have unique names before architecture synthesis.")
+    synthesized_by_name = {component.name.casefold(): component for component in synthesized}
+    if len(synthesized_by_name) != len(synthesized) or synthesized_by_name.keys() != candidate_by_name.keys():
+        raise ValueError(
+            "Architecture synthesis must preserve every candidate component exactly once without renaming or adding components."
+        )
+    for name, candidate in candidate_by_name.items():
+        actual_ids = synthesized_by_name[name].requirement_ids
+        if actual_ids != candidate.requirements:
+            raise ValueError(
+                f"Architecture synthesis must preserve candidate requirement IDs for {candidate.name}: "
+                f"expected {candidate.requirements}, received {actual_ids}."
+            )
 
 
 def _is_recommended_pattern(pattern: str) -> bool:
@@ -655,6 +737,7 @@ REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{com
 
     client = _client()
     response = _groq_responses_parse(client,
+        stage="reflection/evaluation",
         model=_model(),
         instructions=SYSTEM_BASE,
         input=_with_output_contract(prompt, RationaleResult),
@@ -662,7 +745,35 @@ REQUIREMENTS:\n{req_text}\n\nARCHITECTURE STYLE: {arch.style}\nCOMPONENTS:\n{com
     )
     if not response.output_parsed:
         raise RuntimeError("Model returned no structured rationale output.")
-    return response.output_parsed
+    result = response.output_parsed
+    known_ids = {requirement.id for requirement in reqs}
+    trace_ids = [link.requirement_id for link in result.trace_links]
+    assessment_ids = [item.requirement_id for item in result.requirement_assessments]
+    unknown_ids = (set(trace_ids) | set(assessment_ids)) - known_ids
+    if unknown_ids:
+        raise ValueError(
+            "Reflection/evaluation returned unknown requirement IDs: "
+            f"{', '.join(sorted(unknown_ids))}."
+        )
+    missing_trace_ids = known_ids - set(trace_ids)
+    if missing_trace_ids:
+        raise ValueError(
+            "Reflection/evaluation omitted trace links for requirement IDs: "
+            f"{', '.join(sorted(missing_trace_ids))}."
+        )
+    duplicate_assessment_ids = {
+        requirement_id for requirement_id in assessment_ids
+        if assessment_ids.count(requirement_id) > 1
+    }
+    missing_assessment_ids = known_ids - set(assessment_ids)
+    if duplicate_assessment_ids or missing_assessment_ids:
+        details = []
+        if duplicate_assessment_ids:
+            details.append(f"duplicate={', '.join(sorted(duplicate_assessment_ids))}")
+        if missing_assessment_ids:
+            details.append(f"missing={', '.join(sorted(missing_assessment_ids))}")
+        raise ValueError("Reflection/evaluation must return exactly one assessment per requirement: " + "; ".join(details))
+    return result
 
 
 def run_llm_pipeline(text: str) -> tuple[list[Requirement], Architecture, list[TraceLink], list[str], list[str], list[LLMRequirementAssessment]]:

@@ -27,24 +27,29 @@ def build_report(result: PipelineResult) -> str:
     lines += [
         "", "## 7. Evaluation", "",
         "Requirement traceability is a mapping, not proof of satisfaction.", "",
-        "| Requirement | Status | Evidence | Unresolved gaps |",
+        "| Requirement | Status | Evidence | Findings / unresolved gaps |",
         "|---|---|---|---|",
     ]
     for assessment in result.requirement_assessments:
+        assessment_refs = (
+            ", ".join(assessment.finding_ids)
+            if assessment.finding_ids
+            else "; ".join(assessment.gaps) or "None recorded"
+        )
         lines.append(
             f"| {_cell(assessment.requirement_id)} | {_cell(assessment.status)} | "
             f"{_cell('; '.join(assessment.evidence) or 'No evidence recorded')} | "
-            f"{_cell('; '.join(assessment.gaps) or 'None recorded')} |"
+            f"{_cell(assessment_refs)} |"
         )
     if result.evaluation_findings:
         lines += [
             "", "### Actionable Findings", "",
-            "| Severity | Subject | Requirements | Finding | Why it matters | Action |",
-            "|---|---|---|---|---|---|",
+            "| Finding ID | Severity | Subject | Requirements | Finding | Why it matters | Action |",
+            "|---|---|---|---|---|---|---|",
         ]
         for finding in result.evaluation_findings:
             lines.append(
-                f"| {_cell(finding.severity)} | {_cell(finding.subject)} | "
+                f"| {_cell(finding.finding_id)} | {_cell(finding.severity)} | {_cell(finding.subject)} | "
                 f"{_cell(', '.join(finding.requirement_ids) or '—')} | {_cell(finding.message)} | "
                 f"{_cell(finding.impact)} | {_cell(finding.action)} |"
             )

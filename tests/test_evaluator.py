@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models import Architecture, Component, Relationship, Requirement, TraceLink
-from app.pipeline.evaluator import evaluate_architecture
+from app.pipeline.evaluator import _dedupe_findings, _finding, evaluate_architecture
 
 
 def _requirement(text="Users can place orders.", requirement_id="REQ-001", kind="functional"):
@@ -90,6 +90,9 @@ def test_trace_link_does_not_override_partial_satisfaction_assessment():
     assert assessments[0].status == "partially_satisfied"
     assert "No cancellation path is defined." in assessments[0].gaps
     assert any(f.code == "requirement_partial" for f in findings)
+    assert {finding.finding_id for finding in findings if "REQ-001" in finding.requirement_ids}.issubset(
+        set(assessments[0].finding_ids)
+    )
 
 
 def test_satisfied_status_with_reported_gaps_is_downgraded_to_partial():
@@ -428,3 +431,85 @@ def test_clean_architecture_has_no_false_positive_findings():
 
     assert assessments[0].status == "satisfied"
     assert findings == []
+
+
+def test_identical_findings_share_stable_identity_and_deduplicate():
+    first = _finding(
+        "requirement_clarification", "REQ-001: User Service", ["REQ-001"],
+        "Acceptance detail is unspecified.", "The expected behavior cannot be verified.",
+        "Clarify the required behavior.",
+    )
+    repeated = _finding(
+        "REQUIREMENT_CLARIFICATION", " req-001:   user service ", ["req-001"],
+        "Acceptance detail is   unspecified.", "The expected behavior cannot be verified.",
+        "Clarify the required behavior.",
+    )
+
+    assert first.finding_id.startswith("EV-")
+    assert first.finding_id == repeated.finding_id
+    assert len(_dedupe_findings([first, repeated])) == 1
+
+
+def test_distinct_findings_for_same_requirement_are_preserved():
+    policy_gap = _finding(
+        "requirement_clarification", "REQ-001: User Service", ["REQ-001"],
+        "Order cancellation behavior is unspecified.", "Cancellation acceptance is unclear.",
+        "Clarify the required cancellation behavior.",
+    )
+    storage_gap = _finding(
+        "requirement_clarification", "REQ-001: User Service", ["REQ-001"],
+        "Order status transition is unspecified.", "Order lifecycle behavior cannot be assessed.",
+        "Clarify the allowed order state transitions.",
+    )
+
+    distinct = _dedupe_findings([policy_gap, storage_gap])
+
+    assert len(distinct) == 2
+    assert distinct[0].finding_id != distinct[1].finding_id
+
+
+def test_repeated_evidence_sentences_are_removed_across_sources():
+    requirement = _requirement()
+    component = _component(responsibility="Order Service persists order records.")
+    trace = [TraceLink(
+        requirement_id="REQ-001",
+        architectural_element="Order Service",
+        decision="Use Order Service",
+        rationale="Order Service persists order records.",
+        confidence=0.9,
+    )]
+    assessment = SimpleNamespace(
+        requirement_id="REQ-001",
+        status="satisfied",
+        evidence="Order Service persists order records. It retries failed writes.",
+        gaps=[],
+    )
+
+    assessments, _ = evaluate_architecture(
+        [requirement], _architecture(components=[component]), trace, [assessment]
+    )
+    evidence = " ".join(assessments[0].evidence)
+
+    assert evidence.count("Order Service persists order records.") == 1
+    assert "It retries failed writes." in evidence
+
+
+def test_evidence_deduplication_preserves_distinct_component_mappings():
+    requirement = _requirement()
+    shared_rationale = "Both components validate the order state."
+    components = [
+        _component("Order Service", responsibility=shared_rationale),
+        _component("Audit Service", responsibility=shared_rationale),
+    ]
+    trace_links = [
+        TraceLink("REQ-001", component.name, f"Use {component.name}", shared_rationale, 0.9)
+        for component in components
+    ]
+
+    assessments, _ = evaluate_architecture(
+        [requirement], _architecture(components=components), trace_links
+    )
+
+    assert len(assessments[0].evidence) == 2
+    assert "Mapped to Order Service" in assessments[0].evidence[0]
+    assert "Mapped to Audit Service" in assessments[0].evidence[1]

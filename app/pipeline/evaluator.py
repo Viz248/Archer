@@ -217,19 +217,26 @@ def evaluate_architecture(
         assessments.append(RequirementAssessment(
             requirement_id=requirement.id,
             status=status,
-            evidence=_unique(evidence),
+            evidence=_unique_evidence(evidence),
             gaps=_unique(gaps),
         ))
 
     findings.extend(_check_relationships(architecture, component_names))
     findings.extend(_check_patterns(architecture, component_names))
     findings.extend(_check_availability(requirements, architecture, assessments, valid_trace_links))
-    return assessments, _dedupe_findings(findings)
+    findings = _dedupe_findings(findings)
+    for assessment in assessments:
+        assessment.finding_ids = [
+            finding.finding_id
+            for finding in findings
+            if assessment.requirement_id in finding.requirement_ids
+        ]
+    return assessments, findings
 
 
 def finding_warning(finding: EvaluationFinding) -> str:
     anchors = ", ".join(finding.requirement_ids) if finding.requirement_ids else finding.subject
-    return f"{anchors}: {finding.message} Why it matters: {finding.impact} Action: {finding.action}"
+    return f"[{finding.finding_id}] {anchors}: {finding.message} Why it matters: {finding.impact} Action: {finding.action}"
 
 
 def _is_architecture_element(value: str, components: dict[str, str]) -> bool:
@@ -550,11 +557,41 @@ def _unique(values: list[str]) -> list[str]:
     return result
 
 
+def _unique_evidence(values: list[str]) -> list[str]:
+    result = []
+    seen_claims: set[str] = set()
+    seen_mappings: set[tuple[str, str]] = set()
+    for value in values:
+        mapping = re.match(r"^Mapped to (.+?):\s*(.*)$", value.strip(), re.IGNORECASE)
+        component = mapping.group(1).strip().casefold() if mapping else ""
+        text = mapping.group(2) if mapping else value
+        kept_sentences = []
+        for sentence in re.split(r"(?<=[.!?])\s+", text.strip()):
+            normalized = re.sub(r"\s+", " ", sentence).strip(" \t.!?").casefold()
+            if not normalized:
+                continue
+            if mapping:
+                mapping_key = (component, normalized)
+                if mapping_key in seen_mappings:
+                    continue
+                seen_mappings.add(mapping_key)
+                kept_sentences.append(
+                    f"Mapped to {mapping.group(1).strip()}: {sentence.strip()}"
+                    if not kept_sentences else sentence.strip()
+                )
+            elif normalized not in seen_claims:
+                kept_sentences.append(sentence.strip())
+            seen_claims.add(normalized)
+        if kept_sentences:
+            result.append(" ".join(kept_sentences))
+    return result
+
+
 def _dedupe_findings(findings: list[EvaluationFinding]) -> list[EvaluationFinding]:
     result = []
     seen = set()
     for finding in findings:
-        key = (finding.code, finding.subject.casefold(), tuple(sorted(finding.requirement_ids)))
+        key = finding.finding_id
         if key not in seen:
             seen.add(key)
             result.append(finding)
