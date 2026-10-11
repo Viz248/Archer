@@ -1,6 +1,16 @@
 from app.models import PipelineResult
 from .evaluator import finding_warning
 
+
+_DIAGRAM_LABELS = {
+    "architecture": "System Architecture / Components",
+    "use_case": "Use-Case Representation",
+    "sequence": "System Sequence",
+    "activity": "System Activity / Workflow",
+    "class": "Domain Class Diagram",
+}
+
+
 def build_report(result: PipelineResult) -> str:
     lines = [
         "# AI Assisted Requirements to Architecture Synthesis Report", "",
@@ -59,7 +69,22 @@ def build_report(result: PipelineResult) -> str:
     pipeline_warnings = [warning for warning in result.warnings if warning not in finding_warnings]
     if pipeline_warnings:
         lines += ["", "### Pipeline Warnings", ""] + [f"- {warning}" for warning in pipeline_warnings]
-    lines += ["", "## 8. AI/LLM Design Patterns", "", "- Prompt chaining", "- Tool use / function calling", "- Structured output generation", "- Routing", "- Reflection / self-critique", "- Evaluator-optimizer", "", "This demo records generated artifacts and traceability. The supplied project document defines accuracy, repeated-run consistency, and manual design-time reduction as evaluation goals, but provides no measured experimental results. Therefore this demo does not fabricate evaluation values."]
+    lines += ["", "## 8. Generated Target-System Diagrams", ""]
+    for key, label in _DIAGRAM_LABELS.items():
+        source = result.uml.get(key, "")
+        status = result.diagram_status.get(key, "unavailable: No diagram status was provided.")
+        lines += [f"### {label}", ""]
+        if source:
+            lines += ["```mermaid", source, "```", ""]
+            if status != "available":
+                lines.append(f"Diagram note: {_cell(status)}")
+        else:
+            lines.append(f"Unavailable: {_cell(status.removeprefix('unavailable: ').strip())}")
+        lines.append("")
+    lines += ["## 9. Archer Internal Workflow (Developer Documentation)", ""]
+    for key, source in result.internal_workflow_diagrams.items():
+        lines += [f"### {_cell(key.replace('_', ' ').title())}", "", "```mermaid", source, "```", ""]
+    lines += ["## 10. AI/LLM Design Patterns", "", "- Prompt chaining", "- Tool use / function calling", "- Structured output generation", "- Routing", "- Reflection / self-critique", "- Evaluator-optimizer", "", "This demo records generated artifacts and traceability. The supplied project document defines accuracy, repeated-run consistency, and manual design-time reduction as evaluation goals, but provides no measured experimental results. Therefore this demo does not fabricate evaluation values."]
     return "\n".join(lines)
 
 

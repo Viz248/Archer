@@ -93,6 +93,8 @@ class PipelineResult:
     ai_stages: list[str] = field(default_factory=list)
     requirement_assessments: list[RequirementAssessment] = field(default_factory=list)
     evaluation_findings: list[EvaluationFinding] = field(default_factory=list)
+    diagram_status: dict[str, str] = field(default_factory=dict)
+    internal_workflow_diagrams: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self):
         return asdict(self)

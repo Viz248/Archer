@@ -4,7 +4,7 @@ from .parser import parse_requirements
 from .components import extract_components
 from .synthesizer import synthesize
 from .tracer import build_trace
-from .uml import use_case, class_diagram, sequence, activity
+from .uml import generate_diagrams, internal_workflow_diagrams
 from .report import build_report
 from .llm import is_enabled, run_llm_pipeline
 from .evaluator import evaluate_architecture, finding_warning
@@ -42,12 +42,7 @@ def run_pipeline(text: str) -> PipelineResult:
     warnings = _dedupe_warnings(warnings)
 
     run_id = uuid.uuid4().hex[:10]
-    uml = {
-        "use_case": use_case(reqs),
-        "class": class_diagram(arch),
-        "sequence": sequence(arch),
-        "activity": activity(),
-    }
+    uml, diagram_status = generate_diagrams(reqs, arch)
     result = PipelineResult(
         run_id=run_id,
         requirements=reqs,
@@ -60,6 +55,8 @@ def run_pipeline(text: str) -> PipelineResult:
         ai_stages=ai_stages,
         requirement_assessments=requirement_assessments,
         evaluation_findings=evaluation_findings,
+        diagram_status=diagram_status,
+        internal_workflow_diagrams=internal_workflow_diagrams(),
     )
     if any(r.type == "ambiguous" for r in reqs):
         result.warnings.append("One or more requirements were classified as ambiguous and should be reviewed before finalizing the architecture.")
