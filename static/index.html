@@ -1,95 +1,1068 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Req2Arch — AI Architecture Synthesizer</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Archer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='4' fill='%2311253D'/%3E%3Cpath d='M8 24L24 8M24 8h-8M24 8v8' stroke='white' stroke-width='2.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-:root{font-family:Inter,system-ui,Segoe UI,sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.wrap{max-width:1250px;margin:auto;padding:28px}.hero{background:#111827;color:white;border-radius:20px;padding:28px 30px;margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:0;color:#cbd5e1}.badge{display:inline-block;margin-top:14px;padding:6px 10px;border-radius:999px;background:#334155;color:#e2e8f0;font-size:12px}.grid{display:grid;grid-template-columns:420px 1fr;gap:20px}.card{background:white;border:1px solid #e5e7eb;border-radius:16px;padding:20px;box-shadow:0 8px 30px #0000000a}.card h2{margin-top:0;font-size:18px}.input{width:100%;min-height:320px;border:1px solid #d1d5db;border-radius:12px;padding:14px;font:14px ui-monospace,monospace;resize:vertical}.btns{display:flex;gap:10px;margin-top:12px}.btn{border:0;border-radius:10px;padding:11px 16px;cursor:pointer;font-weight:700}.primary{background:#111827;color:white}.secondary{background:#e5e7eb;color:#111827}.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}.tab{padding:8px 12px;border:1px solid #d1d5db;background:#fff;border-radius:8px;cursor:pointer}.tab.active{background:#111827;color:#fff}.panel{display:none}.panel.active{display:block}.metric{display:inline-block;background:#f3f4f6;border-radius:10px;padding:10px 14px;margin:0 8px 8px 0}.component{border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin:9px 0}.component strong{display:block}.trace{border-collapse:collapse;width:100%;font-size:13px}.trace th,.trace td{border:1px solid #e5e7eb;padding:8px;text-align:left;vertical-align:top}.trace th{background:#f9fafb}.uml{background:#0b1020;color:#e5e7eb;border-radius:12px;padding:14px;white-space:pre-wrap;font:12px ui-monospace,monospace;overflow:auto;max-height:480px}.status{margin-top:10px;color:#64748b;font-size:13px}.warn{background:#fff7ed;border:1px solid #fed7aa;padding:10px;border-radius:10px;margin-bottom:12px}.empty{color:#64748b;padding:25px;text-align:center}.download{display:inline-block;margin-top:10px;padding:9px 12px;border-radius:8px;background:#eef2ff;color:#3730a3;cursor:pointer}.small{font-size:12px;color:#64748b}.stage{display:inline-block;margin:3px 5px 3px 0;padding:6px 8px;background:#eef2ff;border-radius:7px;font-size:12px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
-</style>
-<style>
-.diagram-section{border-top:1px solid #e5e7eb;padding-top:14px;margin-top:18px}.diagram-controls{display:flex;gap:8px;align-items:center;margin:10px 0}.diagram-viewport{max-width:100%;overflow:auto;border:1px solid #e5e7eb;border-radius:8px;padding:12px;background:#fff}.diagram-viewport svg{max-width:none;height:auto}.diagram-source{max-height:480px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#111827;color:#e5e7eb;border-radius:8px;padding:14px;font:12px ui-monospace,monospace}.diagram-state{color:#64748b;padding:12px 0}
+:root{
+  --paper:#E9EEF4;
+  --sheet:#F7F9FB;
+  --ink:#11253D;
+  --ink-2:#44566B;
+  --blue:#1F4FBF;
+  --blue-soft:#DCE6F8;
+  --red:#C8321F;
+  --red-soft:#FBE7E3;
+  --rule:#C3CEDB;
+  --grid:rgba(31,79,191,.07);
+  --grid-major:rgba(31,79,191,.14);
+  --display:'Barlow Semi Condensed','Arial Narrow',system-ui,sans-serif;
+  --text:'IBM Plex Sans',system-ui,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--text);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+h1,h2,h3,h4,p,ul,ol{margin:0}
+ul,ol{padding:0;list-style:none}
+code{font:.92em ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--blue-soft);padding:1px 4px;border-radius:2px}
+
+/* shell */
+.app{display:grid;grid-template-rows:auto minmax(0,1fr);height:100vh}
+.top{display:flex;align-items:center;gap:14px;padding:0 20px;height:52px;background:var(--sheet);border-bottom:1px solid var(--rule)}
+.brand{display:flex;align-items:center;gap:10px}
+.brand svg{width:26px;height:26px;display:block}
+.wordmark{font:700 23px/1 var(--display);letter-spacing:.2px}
+.tagline{color:var(--ink-2);font-size:14px;padding-left:14px;border-left:1px solid var(--rule)}
+.mode{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.mode i{width:9px;height:9px;border-radius:50%;border:2px solid var(--ink-2);display:block}
+.mode.live{color:var(--ink)}
+.mode.live i{background:var(--blue);border-color:var(--blue)}
+.mode.warn{color:var(--red)}
+.mode.warn i{border-color:var(--red)}
+.main{display:grid;grid-template-columns:372px minmax(0,1fr);min-height:0}
+.side{overflow:auto;background:var(--sheet);border-right:1px solid var(--rule);padding:18px 18px 28px}
+.work{overflow:auto;min-width:0}
+
+/* sidebar */
+.side label,.side h2{display:block;font:600 17px/1.2 var(--display);margin:0 0 8px}
+textarea{display:block;width:100%;min-height:168px;resize:vertical;padding:11px 12px;border:1px solid var(--rule);border-radius:3px;background:#fff;color:var(--ink);font:14px/1.55 var(--text)}
+textarea:focus{outline:2px solid var(--blue);outline-offset:0;border-color:var(--blue)}
+.actions{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.btn{border:1px solid var(--ink);background:var(--ink);color:#fff;padding:9px 15px;border-radius:3px;cursor:pointer;font-weight:500;font-size:14px}
+.btn:hover{background:#1b3556}
+.btn:disabled{opacity:.65;cursor:progress}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+.btn.ghost:hover{background:var(--blue-soft);border-color:var(--blue)}
+.btn.small{padding:5px 10px;font-size:13px}
+.kbd{font-size:12px;color:var(--ink-2)}
+.status{margin-top:10px;font-size:13px;color:var(--ink-2);min-height:1.5em}
+.status.err{color:var(--red);background:var(--red-soft);border-left:3px solid var(--red);padding:8px 10px;border-radius:0 3px 3px 0}
+.hint{font-size:13px;color:var(--ink-2)}
+.side section{margin-top:26px}
+.reqs{margin:0 -18px;border-top:1px solid var(--rule)}
+.req{display:grid;grid-template-columns:20px minmax(0,1fr);gap:9px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--rule);border-left:3px solid transparent;background:transparent;padding:10px 18px 10px 15px;cursor:pointer}
+.req:hover{background:#eef3f9}
+.req[aria-pressed="true"]{background:var(--blue-soft);border-left-color:var(--blue)}
+.req.rel{border-left-color:#8fa9de}
+.req .ico{padding-top:2px}
+.rid{display:block;font:600 13px/1.2 var(--text);font-variant-numeric:tabular-nums}
+.rtxt{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;line-height:1.4;margin-top:2px}
+.rmeta{display:block;font-size:12px;color:var(--ink-2);margin-top:3px}
+details.hist summary{cursor:pointer;font:600 17px/1.2 var(--display);padding:2px 0}
+.hist ul{margin:8px -18px 0;border-top:1px solid var(--rule)}
+.hrow{display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--rule);padding:9px 18px;cursor:pointer}
+.hrow:hover{background:#eef3f9}
+.hq{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hm{display:block;font-size:12px;color:var(--ink-2)}
+
+/* icons */
+.ic{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;display:block;flex:none}
+.ic-ok{color:var(--blue)}.ic-ok circle{fill:var(--blue-soft)}
+.ic-map{color:var(--blue)}
+.ic-part{color:var(--red)}.ic-part path:first-child{fill:var(--red-soft)}
+.ic-un{color:var(--red)}
+
+/* work header */
+.workhead{position:sticky;top:0;z-index:5;background:var(--paper);border-bottom:1px solid var(--rule)}
+.pipewrap{display:flex;align-items:center;gap:16px;padding:12px 24px 10px}
+.pipe{display:flex;flex:1;gap:0;min-width:0;flex-wrap:wrap;row-gap:6px}
+.stage{display:flex;align-items:center;gap:8px;padding-right:14px;font-size:13px;color:var(--ink-2)}
+.stage+.stage::before{content:"";width:22px;height:1px;background:var(--rule);margin-right:14px}
+.stage .mk{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--ink-2);display:grid;place-items:center;flex:none}
+.stage .sm{font-size:11px;color:var(--ink-2);border:1px solid var(--rule);padding:0 5px;border-radius:2px}
+.pipe[data-state="done"] .stage{color:var(--ink)}
+.pipe[data-state="done"] .mk{background:var(--blue);border-color:var(--blue)}
+.pipe[data-state="done"] .mk::after{content:"";width:3px;height:6px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.pipe[data-state="running"] .stage{color:var(--ink)}
+.pipe[data-state="running"] .mk{border-color:var(--blue);animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+.elapsed{font-size:13px;color:var(--ink-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tabs{display:flex;gap:2px;padding:0 24px;overflow:auto}
+.tab{border:0;background:none;padding:9px 14px 10px;cursor:pointer;font-weight:500;font-size:14px;color:var(--ink-2);border-bottom:3px solid transparent;white-space:nowrap}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--blue)}
+.tab .n{font-size:12px;color:var(--red);margin-left:6px;font-weight:600}
+.view[hidden]{display:none}
+
+/* architecture view */
+.arch{display:grid;grid-template-columns:minmax(0,1fr) 330px;align-items:start}
+.canvas{min-height:520px;padding:24px;background-color:var(--paper);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px),linear-gradient(var(--grid-major) 1px,transparent 1px),linear-gradient(90deg,var(--grid-major) 1px,transparent 1px);background-size:24px 24px,24px 24px,120px 120px,120px 120px}
+.graph svg{display:block;margin:0 auto;overflow:visible}
+.foot{display:flex;gap:20px;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;margin-top:28px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
+.legend li{display:flex;align-items:center;gap:7px}
+.tblock{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--ink);border:1.5px solid var(--ink);width:min(100%,580px);margin-left:auto}
+.tblock div{background:var(--sheet);padding:5px 9px;min-width:0}
+.tblock small{display:block;font-size:11px;color:var(--ink-2);line-height:1.3}
+.tblock b{display:block;font:600 14px/1.3 var(--display);overflow-wrap:anywhere}
+.tblock .w4{grid-column:span 4}
+.inspector{border-left:1px solid var(--rule);background:var(--sheet);padding:20px;min-height:520px;position:sticky;top:96px;max-height:calc(100vh - 150px);overflow:auto}
+.inspector h2{font:700 22px/1.15 var(--display);margin-bottom:4px}
+.inspector h3{font:600 15px/1.2 var(--display);margin:18px 0 6px}
+.inspector p{font-size:14px}
+.inspector .sub{font-size:12.5px;color:var(--ink-2);margin-bottom:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--rule);background:#fff;border-radius:3px;padding:3px 8px;font-size:13px;cursor:pointer;text-align:left}
+.chip:hover{border-color:var(--blue);background:var(--blue-soft)}
+.chip.plain{cursor:default}.chip.plain:hover{border-color:var(--rule);background:#fff}
+.chip.rec{border-style:dashed}
+.conn li{font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--rule)}
+.conn li span{display:block;font-size:12.5px;color:var(--ink-2)}
+.conn button,.linkbtn{background:none;border:0;padding:0;color:var(--blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-size:inherit;text-align:left}
+.gap{border-left:3px solid var(--red);background:var(--red-soft);padding:6px 10px;font-size:13.5px;margin-top:6px;border-radius:0 3px 3px 0}
+.empty{max-width:440px;margin:90px auto;text-align:center}
+.empty h3{font:600 20px/1.2 var(--display);margin-bottom:6px}
+.empty p{color:var(--ink-2)}
+
+/* graph svg */
+.node{cursor:pointer;outline:none}
+.node .box{fill:#fff;stroke:var(--ink);stroke-width:1.4}
+.node .bar{fill:var(--blue)}
+.node.flag .bar{fill:var(--red)}
+.node.flag .box{stroke:var(--red)}
+.node.ext .box{stroke-dasharray:4 3;fill:var(--sheet)}
+.node:hover .box{stroke-width:2.2}
+.node:focus-visible .box{stroke:var(--blue);stroke-width:3}
+.node.sel .box{stroke:var(--blue);stroke-width:2.8}
+.nname{font:600 15px var(--display);fill:var(--ink)}
+.nreqs{font:400 11.5px var(--text);fill:var(--ink-2)}
+.rev{fill:var(--red-soft);stroke:var(--red);stroke-width:1.4;stroke-linejoin:round}
+.revn{font:700 10.5px var(--text);fill:var(--red)}
+.bnd{fill:rgba(255,255,255,.35);stroke:var(--blue);stroke-width:1.3;stroke-dasharray:7 5}
+.btab{fill:var(--sheet);stroke:var(--blue);stroke-width:1.3}
+.bname{font:600 14px var(--display);fill:var(--ink)}
+.bsub{font:400 11.5px var(--text);fill:var(--ink-2)}
+.edge path{fill:none;stroke:#7F95B3;stroke-width:1.3;marker-end:url(#arr)}
+.edge.on path{stroke:var(--blue);stroke-width:1.9;marker-end:url(#arr-on)}
+.elabel{font:500 11px var(--text);fill:var(--ink-2);paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}
+.has-sel .node{opacity:.38}
+.has-sel .node.on{opacity:1}
+.has-sel .edge{opacity:.22}
+.has-sel .edge.on{opacity:1}
+.fresh .edge path{stroke-dasharray:1;stroke-dashoffset:1;animation:draw .8s ease-out .1s forwards}
+.fresh .elabel{opacity:0;animation:fade .3s ease-out .8s forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes fade{to{opacity:1}}
+
+/* traceability */
+.pad{padding:22px 24px 40px}
+.pad h2{font:700 22px/1.15 var(--display);margin-bottom:4px}
+.lede{color:var(--ink-2);font-size:14px;margin-bottom:16px;max-width:70ch}
+.mwrap{overflow:auto;border:1px solid var(--rule);background:var(--sheet);margin-bottom:28px}
+.matrix{border-collapse:collapse;width:100%;font-size:13px}
+.matrix th,.matrix td{border:1px solid var(--rule);padding:0}
+.matrix thead th{vertical-align:bottom;background:var(--paper);font-weight:500;min-width:112px;max-width:150px}
+.matrix thead th:first-child{min-width:230px;max-width:none;position:sticky;left:0;z-index:2}
+.matrix tbody th{text-align:left;font-weight:400;background:var(--sheet);position:sticky;left:0;z-index:1}
+.mh{display:block;width:100%;background:none;border:0;padding:8px 9px;text-align:left;cursor:pointer;line-height:1.3}
+.mh:hover{background:var(--blue-soft)}
+.mh b{font-weight:600;font-variant-numeric:tabular-nums}
+.mh span{display:block;color:var(--ink-2);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.cell{display:grid;place-items:center;width:100%;height:42px;background:none;border:0;cursor:pointer}
+.cell:hover{background:var(--blue-soft)}
+.matrix .hl{background:#edf2fb}
+.matrix .hl-x{background:var(--blue-soft)}
+.tr{border:1px solid var(--rule);background:var(--sheet);margin-bottom:14px}
+.tr header{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border-bottom:1px solid var(--rule);flex-wrap:wrap}
+.tr header .idbtn{font-weight:600;font-variant-numeric:tabular-nums;background:none;border:0;padding:0;cursor:pointer;color:var(--blue);text-decoration:underline;text-underline-offset:2px}
+.tr.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.st{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.rtext{flex:1 1 320px;font-size:14px}
+.links li{padding:10px 14px;border-bottom:1px solid var(--rule)}
+.links li:last-child{border-bottom:0}
+.lk{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.lk .el{font:600 15px var(--display)}
+.dec{font-size:12.5px;border:1px solid var(--rule);background:#fff;padding:1px 7px;border-radius:3px}
+.conf{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.conf i{display:block;width:84px;height:5px;background:var(--rule);border-radius:2px;overflow:hidden;position:relative}
+.conf i b{position:absolute;inset:0 auto 0 0;background:var(--blue)}
+.why{font-size:13.5px;color:var(--ink-2);margin-top:3px}
+.tr .gapbox{padding:0 14px 12px}
+.tr details{padding:0 14px 12px;font-size:13px;color:var(--ink-2)}
+.tr summary{cursor:pointer}
+
+/* findings */
+.fgroup{background:var(--sheet);border:1px solid var(--rule);border-left:4px solid var(--red);margin-bottom:16px}
+.fgroup[data-sev="warning"]{border-left-width:2px}
+.fgroup header{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;padding:12px 16px 4px}
+.fgroup h3{font:600 18px/1.2 var(--display)}
+.fgroup .cnt{font-size:13px;color:var(--ink-2)}
+.shared{padding:2px 16px 8px;font-size:14px}
+.shared p{margin-top:4px}
+.fgroup ul{border-top:1px solid var(--rule)}
+.fgroup li{padding:10px 16px;border-bottom:1px solid var(--rule);font-size:14px}
+.fgroup li:last-child{border-bottom:0}
+.fid{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums;margin-left:6px}
+.fgroup li p{margin-top:4px}
+.fgroup li .own{font-size:13px;color:var(--ink-2)}
+.notes{background:var(--sheet);border:1px solid var(--rule);padding:12px 16px;margin-bottom:18px}
+.notes li{font-size:14px;padding:3px 0}
+.ok{display:flex;align-items:center;gap:10px;background:var(--sheet);border:1px solid var(--rule);border-left:4px solid var(--blue);padding:14px 16px}
+
+/* diagrams */
+.dgrid{display:grid;grid-template-columns:210px minmax(0,1fr);gap:24px;align-items:start}
+.dnav h3{font:600 15px/1.2 var(--display);margin:0 0 6px}
+.dnav ul{margin-bottom:20px;border-top:1px solid var(--rule)}
+.dbtn{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--rule);background:none;padding:9px 6px;cursor:pointer;font-size:14px}
+.dbtn:hover{background:#eef3f9}
+.dbtn[aria-current="true"]{background:var(--blue-soft);font-weight:500}
+.dbtn.off{color:var(--ink-2)}
+.dbtn i{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none}
+.dbtn.off i{background:none;border:1.5px solid var(--ink-2)}
+.dtool{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.dtool h3{font:600 20px/1.2 var(--display);margin-right:auto}
+.dstage{background:#fff;border:1px solid var(--rule);padding:18px;overflow:auto;min-height:220px}
+.dstage svg{max-width:100%;height:auto;display:block;margin:0 auto}
+.src{white-space:pre-wrap;word-break:break-word;font:12.5px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--ink);color:#E6EDF6;padding:14px;border-radius:3px;overflow:auto;max-height:560px}
+.dnote{font-size:13px;color:var(--ink-2);margin-bottom:10px}
+.copied{font-size:12.5px;color:var(--ink-2)}
+
+/* report */
+.mdv{background:var(--sheet);border:1px solid var(--rule);padding:22px 28px;max-width:860px}
+.mdv h1{font:700 26px/1.15 var(--display);margin:0 0 12px}
+.mdv h2{font:700 21px/1.2 var(--display);margin:24px 0 8px}
+.mdv h3{font:600 17px/1.2 var(--display);margin:18px 0 6px}
+.mdv p{margin:8px 0;max-width:75ch}
+.mdv ul{list-style:disc;padding-left:22px;margin:6px 0}
+.mdv li{margin:3px 0}
+.mdv table{border-collapse:collapse;font-size:13.5px;margin:10px 0;width:100%}
+.mdv th,.mdv td{border:1px solid var(--rule);padding:6px 9px;text-align:left;vertical-align:top}
+.mdv th{background:var(--paper)}
+.mdv pre{white-space:pre-wrap;word-break:break-word;background:var(--ink);color:#E6EDF6;padding:12px;border-radius:3px;font:12.5px/1.55 ui-monospace,Consolas,monospace;overflow:auto}
+
+@media (max-width:1180px){
+  .arch{grid-template-columns:1fr}
+  .inspector{position:static;border-left:0;border-top:1px solid var(--rule);min-height:0;max-height:none}
+}
+@media (max-width:980px){
+  .app{display:block;height:auto}
+  .main{display:block}
+  .side{border-right:0;border-bottom:1px solid var(--rule);overflow:visible}
+  .work{overflow:visible}
+  .workhead{position:static}
+  .tagline{display:none}
+  .dgrid{grid-template-columns:1fr}
+  .canvas{padding:16px}
+  .pad{padding:18px 16px 32px}
+  .pipewrap,.tabs{padding-left:16px;padding-right:16px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .fresh .edge path{stroke-dasharray:none;stroke-dashoffset:0}
+  .fresh .elabel{opacity:1}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-<div class="hero"><h1>AI Assisted Requirements → Architecture</h1><p>Real model-backed, structured, explainable requirements-to-architecture synthesis with traceability and UML specifications.</p><span id="mode" class="badge">Checking AI configuration…</span></div>
-<div class="grid">
-<section class="card">
-<h2>1. Requirements</h2>
-<textarea id="req" class="input" placeholder="Enter one requirement per line..."></textarea>
-<div class="btns"><button class="btn primary" onclick="analyze()">Synthesize Architecture</button><button class="btn secondary" onclick="sample()">Load Sample</button></div>
-<div id="status" class="status">Ready.</div>
-</section>
-<section class="card">
-<div class="tabs">
-<button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="architecture">Architecture</button><button class="tab" data-tab="trace">Traceability</button><button class="tab" data-tab="evaluation">Evaluation</button><button class="tab" data-tab="uml">UML</button><button class="tab" data-tab="report">Report</button>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="4" fill="#11253D"/><path d="M8 24L24 8M24 8h-8M24 8v8" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="wordmark">Archer</span>
+    </div>
+    <span class="tagline">Requirements to architecture</span>
+    <div id="mode" class="mode" role="status"><i></i><span>Checking model connection</span></div>
+  </header>
+
+  <div class="main">
+    <aside class="side">
+      <label for="req">Requirements</label>
+      <textarea id="req" spellcheck="true" placeholder="One requirement per line, for example: Users shall be able to pay online."></textarea>
+      <div class="actions">
+        <button id="run" class="btn" type="button">Synthesize architecture</button>
+        <button id="sample" class="btn ghost" type="button">Load sample</button>
+        <span class="kbd">Ctrl+Enter</span>
+      </div>
+      <div id="status" class="status" role="status" aria-live="polite">Ready.</div>
+
+      <section>
+        <h2>Parsed requirements</h2>
+        <div id="reqlist" class="reqs"></div>
+      </section>
+
+      <section>
+        <details id="hist" class="hist" hidden>
+          <summary>Recent runs</summary>
+          <ul id="histlist"></ul>
+        </details>
+      </section>
+    </aside>
+
+    <div class="work">
+      <div class="workhead">
+        <div class="pipewrap">
+          <ol id="pipe" class="pipe" data-state="idle" aria-label="Pipeline stages"></ol>
+          <span id="elapsed" class="elapsed"></span>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Result views">
+          <button class="tab" role="tab" id="t-architecture" data-tab="architecture" aria-selected="true">Architecture</button>
+          <button class="tab" role="tab" id="t-trace" data-tab="trace" aria-selected="false">Traceability</button>
+          <button class="tab" role="tab" id="t-findings" data-tab="findings" aria-selected="false">Findings<span id="fcount" class="n"></span></button>
+          <button class="tab" role="tab" id="t-diagrams" data-tab="diagrams" aria-selected="false">Diagrams</button>
+          <button class="tab" role="tab" id="t-report" data-tab="report" aria-selected="false">Report</button>
+        </div>
+      </div>
+
+      <section class="view" id="v-architecture" role="tabpanel" aria-labelledby="t-architecture">
+        <div class="arch">
+          <div class="canvas">
+            <div id="graph" class="graph"></div>
+            <div id="foot" class="foot"></div>
+          </div>
+          <aside id="inspector" class="inspector" aria-live="polite"></aside>
+        </div>
+      </section>
+      <section class="view pad" id="v-trace" role="tabpanel" aria-labelledby="t-trace" hidden></section>
+      <section class="view pad" id="v-findings" role="tabpanel" aria-labelledby="t-findings" hidden></section>
+      <section class="view pad" id="v-diagrams" role="tabpanel" aria-labelledby="t-diagrams" hidden></section>
+      <section class="view pad" id="v-report" role="tabpanel" aria-labelledby="t-report" hidden></section>
+    </div>
+  </div>
 </div>
-<div id="overview" class="panel active"><div class="empty">Run the pipeline to generate an architecture.</div></div>
-<div id="architecture" class="panel"></div><div id="trace" class="panel"></div><div id="evaluation" class="panel"></div><div id="uml" class="panel"></div><div id="report" class="panel"></div>
-</section>
-</div></div>
+
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>
-let result=null;
-async function loadConfig(){try{const r=await fetch('/api/config');const j=await r.json();const el=document.getElementById('mode');el.textContent=j.llm_configured?'● LIVE LLM · '+(j.provider||j.model):'○ FALLBACK MODE · configure LLM_API_KEY';}catch(e){document.getElementById('mode').textContent='Configuration unavailable'}}
-async function sample(){const r=await fetch('/api/sample');const j=await r.json();document.getElementById('req').value=j.requirements}
-async function analyze(){
- const text=document.getElementById('req').value; const status=document.getElementById('status');
- if(!text.trim()){status.textContent='Enter some requirements first.';return}
- status.textContent='Running LLM parser → component extraction → architecture synthesis → reflection → UML/report…';
- try{const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requirements:text})});const j=await r.json();if(!r.ok)throw new Error(j.detail||'Request failed');result=j;render(j);status.textContent='Completed '+j.mode+' run '+j.run_id+'.';}catch(e){status.textContent='Error: '+e.message}
+'use strict';
+/* ---------- helpers ---------- */
+const $=(s,r=document)=>r.querySelector(s);
+const $$=(s,r=document)=>[...r.querySelectorAll(s)];
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sentence=s=>{const t=String(s||'').replace(/[_-]+/g,' ').trim();return t?t[0].toUpperCase()+t.slice(1):''};
+const trunc=(s,n)=>{s=String(s||'');return s.length>n?s.slice(0,n-1)+'…':s};
+const getOr=(m,k,mk)=>{if(!m.has(k))m.set(k,mk());return m.get(k)};
+const norm=s=>String(s||'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+const fmtTime=t=>{try{return new Date(t).toLocaleString([], {dateStyle:'medium',timeStyle:'short'})}catch(e){return ''}};
+
+const STATUS={satisfied:'Satisfied',partially_satisfied:'Partly satisfied',mapped:'Mapped',unresolved:'Unresolved'};
+const ICON={
+  satisfied:'<svg class="ic ic-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M5 8.2l2.2 2.2L11 6"/></svg>',
+  partially_satisfied:'<svg class="ic ic-part" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.2 11H1.8z"/><path d="M8 6.6v3M8 11.3v.1"/></svg>',
+  mapped:'<svg class="ic ic-map" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/></svg>',
+  unresolved:'<svg class="ic ic-un" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M5.6 5.6l4.8 4.8M10.4 5.6l-4.8 4.8"/></svg>'
+};
+const icon=s=>ICON[s]||ICON.mapped;
+const statusLabel=s=>STATUS[s]||sentence(s);
+const CODE_TITLES={
+  requirement_partial:'Requirement only partly satisfied',
+  requirement_unresolved:'Requirement unresolved',
+  availability_target_missing:'Availability target missing',
+  availability_target_unspecified:'Availability target not specified',
+  availability_mechanism_unspecified:'Availability mechanism not specified',
+  relationship_endpoint_nonexistent:'Relationship references nonexistent endpoint',
+  relationship_cyclic_dependency:'Cyclic service dependency',
+  pattern_unrepresented:'Pattern declared without representation',
+  untraced_requirement:'Untraced requirement',
+  ambiguous_requirement:'Ambiguous requirement needs review',
+  unknown_trace_requirement:'Trace link references unknown requirement',
+  invalid_trace_target:'Trace link targets nonexistent element'
+};
+const codeTitle=c=>CODE_TITLES[c]||sentence(c);
+
+const state={d:null,sel:null,tab:'architecture',diagram:'architecture',showSrc:false,running:false,at:null,timer:null};
+
+/* ---------- derived model ---------- */
+function derive(j){
+  const a=j.architecture||{};
+  const d={j,a,
+    reqs:j.requirements||[],comps:a.components||[],rels:a.relationships||[],
+    trace:j.trace_links||[],findings:j.evaluation_findings||[],
+    patterns:a.patterns||[],recommended:a.recommended_patterns||[]};
+  d.assess=new Map((j.requirement_assessments||[]).map(x=>[x.requirement_id,x]));
+  d.compByName=new Map(d.comps.map(c=>[c.name,c]));
+  const lower=new Map(d.comps.map(c=>[String(c.name).toLowerCase(),c]));
+  const byId=new Map(d.comps.map(c=>[c.id,c]));
+  d.findComp=el=>d.compByName.get(el)||lower.get(String(el||'').toLowerCase())||byId.get(el)||null;
+  d.reqById=new Map(d.reqs.map(r=>[r.id,r]));
+  d.compReqs=new Map(d.comps.map(c=>[c.name,new Set(c.requirements||[])]));
+  d.reqComps=new Map(d.reqs.map(r=>[r.id,new Set()]));
+  d.trace.forEach(t=>{
+    const c=d.findComp(t.architectural_element);
+    if(c){
+      const set=d.compReqs.get(c.name);
+      if(set)set.add(t.requirement_id);
+    }
+  });
+  d.compReqs.forEach((set,name)=>set.forEach(r=>getOr(d.reqComps,r,()=>new Set()).add(name)));
+  d.status=id=>{const x=d.assess.get(id);if(x&&x.status)return x.status;return (d.reqComps.get(id)||new Set()).size?'mapped':'unresolved'};
+  d.findingsForReq=id=>d.findings.filter(f=>(f.requirement_ids||[]).includes(id));
+  d.findingsForComp=name=>{
+    const rs=d.compReqs.get(name)||new Set();
+    return d.findings.filter(f=>(f.requirement_ids||[]).some(r=>rs.has(r))||String(f.subject||'').toLowerCase()===String(name).toLowerCase());
+  };
+  d.neighbors=name=>{const o=new Set();d.rels.forEach(r=>{if(r.source===name)o.add(r.target);if(r.target===name)o.add(r.source)});return o};
+  return d;
 }
-function render(j){
- const a=j.architecture;
- const requirements=j.requirements||[];
- const traceLinks=j.trace_links||[];
- const warnings=j.warnings||[];
- const assessments=j.requirement_assessments||[];
- const findings=j.evaluation_findings||[];
- const appliedPatterns=a.patterns||[];
- const recommendedPatterns=a.recommended_patterns||[];
- const findingWarnings=new Set(findings.map(f=>`[${f.finding_id}] ${(f.requirement_ids||[]).join(', ')||f.subject}: ${f.message} Why it matters: ${f.impact} Action: ${f.action}`));
- const otherWarnings=warnings.filter(w=>!findingWarnings.has(w));
- document.getElementById('overview').innerHTML=`<div class="metric"><b>${requirements.length}</b><br><span class="small">requirements</span></div><div class="metric"><b>${a.components.length}</b><br><span class="small">components</span></div><div class="metric"><b>${traceLinks.length}</b><br><span class="small">trace links</span></div><div class="metric"><b>${a.relationships.length}</b><br><span class="small">relationships</span></div><h3>Run mode</h3><p><b>${escapeHtml(j.mode)}</b></p><h3>Architecture style</h3><p>${escapeHtml(a.style)}</p><h3>AI stages</h3><div>${(j.ai_stages||[]).map(x=>`<span class="stage">${escapeHtml(x)}</span>`).join('')||'<span class="small">Fallback pipeline only</span>'}</div>${otherWarnings.map(w=>`<div class="warn">${escapeHtml(w)}</div>`).join('')}<h3>Requirement satisfaction</h3>${assessments.map(x=>`<div class="component"><strong>${escapeHtml(x.requirement_id)} · ${escapeHtml(x.status)}</strong>${(x.evidence||[]).map(e=>`<div>${escapeHtml(e)}</div>`).join('')}${(x.finding_ids||[]).length?`<div class="small">Evaluation findings: ${x.finding_ids.map(escapeHtml).join(', ')}</div>`:(x.gaps||[]).map(g=>`<div class="small">Unresolved gap: ${escapeHtml(g)}</div>`).join('')}</div>`).join('')||'<p class="small">No separate satisfaction assessments available.</p>'}<h3>Evaluation summary</h3>${findings.map(f=>`<div class="warn"><strong>${escapeHtml(f.finding_id)} · ${escapeHtml(f.subject)}</strong><div>${escapeHtml(f.message)}</div></div>`).join('')||'<p class="small">No deterministic consistency findings.</p>'}<h3>Applied patterns</h3><p>${appliedPatterns.map(x=>`<span class="metric">${escapeHtml(x)}</span>`).join('')||'<span class="small">None declared</span>'}</p><h3>Recommended, not yet applied</h3><p>${recommendedPatterns.map(x=>`<span class="metric">${escapeHtml(x)}</span>`).join('')||'<span class="small">None</span>'}</p>`;
- document.getElementById('architecture').innerHTML=`<h3>Components</h3>${a.components.map(c=>`<div class="component"><strong>${escapeHtml(c.name)}</strong>${escapeHtml(c.responsibility)}<div class="small">Requirements: ${escapeHtml((c.requirements||[]).join(', ')||'cross-cutting')} · Tech: ${escapeHtml((c.technologies||[]).join(', ')||'not specified')}</div></div>`).join('')}<h3>Relationships</h3>${a.relationships.map(x=>`<div class="component"><strong>${escapeHtml(x.source)} → ${escapeHtml(x.target)}</strong>${escapeHtml(x.kind)} — ${escapeHtml(x.rationale)}</div>`).join('')}<h3>Applied patterns</h3><p>${appliedPatterns.map(x=>`<span class="metric">${escapeHtml(x)}</span>`).join('')||'<span class="small">None declared</span>'}</p><h3>Recommended, not yet applied</h3><p>${recommendedPatterns.map(x=>`<span class="metric">${escapeHtml(x)}</span>`).join('')||'<span class="small">None</span>'}</p>`;
- document.getElementById('trace').innerHTML=`<h3>Requirement → Architecture Trace</h3><table class="trace"><tr><th>Requirement</th><th>Element</th><th>Decision</th><th>Rationale</th><th>Confidence</th></tr>${traceLinks.map(t=>`<tr><td>${escapeHtml(t.requirement_id)}</td><td>${escapeHtml(t.architectural_element)}</td><td>${escapeHtml(t.decision)}</td><td>${escapeHtml(t.rationale)}</td><td>${Number(t.confidence).toFixed(2)}</td></tr>`).join('')}</table>`;
- document.getElementById('evaluation').innerHTML=`<h3>Evaluation findings</h3>${findings.map(f=>`<div class="warn"><strong>${escapeHtml(f.finding_id)} · ${escapeHtml(f.code)} · ${escapeHtml(f.subject)}</strong><div>Requirements: ${escapeHtml((f.requirement_ids||[]).join(', ')||'Architecture-wide')}</div><div>${escapeHtml(f.message)}</div><div>Why it matters: ${escapeHtml(f.impact)}</div><div>Action: ${escapeHtml(f.action)}</div></div>`).join('')||'<p class="small">No deterministic consistency findings.</p>'}`;
- renderDiagramGroup('uml', j.uml||{}, j.diagram_status||{}, j.internal_workflow_diagrams||{});
- document.getElementById('report').innerHTML=`<h3>Generated Report</h3><p class="small">Generated from this run. Includes the execution mode and AI pipeline stages.</p><pre class="uml">${escapeHtml(j.report_markdown)}</pre><span class="download" onclick="downloadReport()">Download report.md</span>`;
+
+/* ---------- graph layout ---------- */
+const NW=212,NH=84,GX=40,GY=78,PAD=22,TAB=38,MARG=28;
+
+function wrapName(name,max=20){
+  const words=String(name).split(/\s+/),lines=[];let cur='';
+  for(const w of words){
+    const next=(cur+' '+w).trim();
+    if(next.length<=max)cur=next;else{if(cur)lines.push(cur);cur=w}
+  }
+  if(cur)lines.push(cur);
+  if(lines.length>2){const rest=lines.splice(1).join(' ');lines.push(rest.length>max+3?rest.slice(0,max)+'…':rest)}
+  return lines;
 }
-const targetDiagramLabels={architecture:'System architecture / components',use_case:'Use-case representation',sequence:'System sequence',activity:'System activity / workflow',class:'Domain class diagram'};
-async function renderDiagramGroup(containerId,diagrams,statuses,internalDiagrams){
- const host=document.getElementById(containerId);const entries=Object.entries(targetDiagramLabels).map(([key,label])=>({key,label,source:diagrams[key]||'',status:statuses[key]||'unavailable: No status information was provided.',group:'target'}));
- const internal=Object.entries(internalDiagrams).map(([key,source])=>({key:'internal-'+key,label:key.replaceAll('_',' '),source:source||'',status:source?'available':'unavailable: No workflow diagram was provided.',group:'internal'}));
- const all=[...entries,...internal];
- host.innerHTML=`<h3>Generated target-system diagrams</h3>${entries.map((item,index)=>diagramSection(item,index)).join('')}<h3>Archer internal workflow</h3><p class="small">Developer documentation; separate from the generated target system.</p>${internal.map((item,index)=>diagramSection(item,index+entries.length)).join('')}`;
- for(let index=0;index<all.length;index++){
-  const item=all[index];if(!item.source)continue;
-  const box=document.getElementById(`diagram-render-${index}`);
+
+function place(nodes,edges,disabled){
+  const hostRe=/host|deploy|contain/i;
+  const outs=new Map();
+  edges.forEach(e=>{if(hostRe.test(e.kind)&&e.s!==e.t)getOr(outs,e.s,()=>[]).push(e)});
+  const bounds=[],hidden=new Set(),hiddenE=new Set();
+  outs.forEach((es,src)=>{
+    if(disabled.has(src)||es.length<3)return;
+    const onlyHosting=edges.every(e=>(e.s!==src&&e.t!==src)||es.includes(e));
+    if(!onlyHosting)return;
+    bounds.push({host:src,members:[...new Set(es.map(e=>e.t))]});
+    hidden.add(src);es.forEach(e=>hiddenE.add(e));
+  });
+  const vis=[...nodes.values()].filter(n=>!hidden.has(n.key));
+  const vedges=edges.filter(e=>!hiddenE.has(e)&&!hidden.has(e.s)&&!hidden.has(e.t)&&e.s!==e.t);
+
+  const depth=new Map(vis.map(n=>[n.key,0]));
+  for(let i=0;i<vis.length;i++){
+    let changed=false;
+    vedges.forEach(e=>{const nd=depth.get(e.s)+1;if(nd>depth.get(e.t)&&nd<=vis.length){depth.set(e.t,nd);changed=true}});
+    if(!changed)break;
+  }
+  const byDepth=[];
+  vis.forEach(n=>{(byDepth[depth.get(n.key)]=byDepth[depth.get(n.key)]||[]).push(n)});
+  const L=byDepth.filter(Boolean);
+  const idx=new Map();
+  L.forEach((layer,li)=>{
+    if(li>0){
+      layer.forEach(n=>{
+        const preds=vedges.filter(e=>e.t===n.key&&idx.has(e.s)).map(e=>idx.get(e.s));
+        n._b=preds.length?preds.reduce((x,y)=>x+y,0)/preds.length:1e9;
+      });
+      layer.sort((x,y)=>x._b-y._b);
+    }
+    layer.forEach((n,i)=>idx.set(n.key,(i+.5)/layer.length));
+  });
+  const layerOf=new Map();
+  L.forEach((layer,li)=>layer.forEach(n=>layerOf.set(n.key,li)));
+  const maxCount=Math.max(1,...L.map(l=>l.length));
+  const totalW=maxCount*NW+(maxCount-1)*GX;
+  const pos=new Map();
+  L.forEach((layer,li)=>{
+    const lw=layer.length*NW+(layer.length-1)*GX,x0=(totalW-lw)/2;
+    layer.forEach((n,i)=>pos.set(n.key,{x:x0+i*(NW+GX),y:li*(NH+GY)}));
+  });
+  const boxes=bounds.map(b=>{
+    const ps=b.members.filter(m=>pos.has(m)).map(m=>pos.get(m));
+    if(!ps.length)return null;
+    const x1=Math.min(...ps.map(p=>p.x))-PAD,y1=Math.min(...ps.map(p=>p.y))-PAD-TAB;
+    const x2=Math.max(...ps.map(p=>p.x))+NW+PAD,y2=Math.max(...ps.map(p=>p.y))+NH+PAD;
+    return Object.assign({},b,{x:x1,y:y1,w:x2-x1,h:y2-y1});
+  }).filter(Boolean);
+  for(const bx of boxes){
+    for(const n of vis){
+      if(bx.members.includes(n.key))continue;
+      const p=pos.get(n.key);
+      if(p.x<bx.x+bx.w&&p.x+NW>bx.x&&p.y<bx.y+bx.h&&p.y+NH>bx.y)return {conflict:bx.host};
+    }
+  }
+  /* ports so several edges do not collapse into one point */
+  const ports=new Map();
+  const addPort=(k,e,end)=>getOr(ports,k,()=>[]).push({e,end});
+  const routed=vedges.filter(e=>pos.has(e.s)&&pos.has(e.t));
+  routed.forEach(e=>{
+    const sp=pos.get(e.s),tp=pos.get(e.t);
+    e.dir=tp.y>sp.y?'down':tp.y<sp.y?'up':'side';
+    if(e.dir==='down'){e.ss='b';e.ts='t'}
+    else if(e.dir==='up'){e.ss='t';e.ts='b'}
+    else{const right=tp.x>sp.x;e.ss=right?'r':'l';e.ts=right?'l':'r'}
+    addPort(e.s+'|'+e.ss,e,'s');addPort(e.t+'|'+e.ts,e,'t');
+  });
+  ports.forEach((list,key)=>{
+    const side=key.split('|').pop();
+    const other=p=>{const o=pos.get(p.end==='s'?p.e.t:p.e.s);return (side==='t'||side==='b')?o.x:o.y};
+    list.sort((x,y)=>other(x)-other(y));
+    const n=list.length,span=(side==='t'||side==='b')?NW-52:NH-30;
+    const step=n>1?Math.min(30,span/(n-1)):0;
+    list.forEach((p,i)=>{p.e['o'+p.end]=(i-(n-1)/2)*step});
+  });
+  const anchor=(k,side,off)=>{
+    const p=pos.get(k);
+    if(side==='b')return {x:p.x+NW/2+off,y:p.y+NH};
+    if(side==='t')return {x:p.x+NW/2+off,y:p.y};
+    if(side==='r')return {x:p.x+NW,y:p.y+NH/2+off};
+    return {x:p.x,y:p.y+NH/2+off};
+  };
+  routed.forEach(e=>{
+    const a1=anchor(e.s,e.ss,e.os||0),a2=anchor(e.t,e.ts,e.ot||0);
+    const ls=layerOf.get(e.s),lt=layerOf.get(e.t);
+    let p;
+    if(e.dir==='side'){
+      p='M'+a1.x+','+a1.y+' L'+a2.x+','+a2.y;
+    }else{
+      const dy=Math.max(26,Math.abs(a2.y-a1.y)/2),sgn=e.dir==='down'?1:-1;
+      const lo=Math.min(ls,lt),hi=Math.max(ls,lt);
+      if(hi-lo>1){
+        const mids=[];for(let l=lo+1;l<hi;l++)(L[l]||[]).forEach(n=>mids.push(pos.get(n.key)));
+        if(mids.length){
+          const minX=Math.min(...mids.map(m=>m.x)),maxX=Math.max(...mids.map(m=>m.x))+NW,midX=(a1.x+a2.x)/2;
+          const left=minX-14,right=maxX+14;
+          const target=Math.abs(midX-left)<=Math.abs(midX-right)?left:right;
+          const b=(target-.125*(a1.x+a2.x))/.75;
+          p='M'+a1.x+','+a1.y+' C'+b+','+(a1.y+sgn*dy*.9)+' '+b+','+(a2.y-sgn*dy*.9)+' '+a2.x+','+a2.y;
+        }
+      }
+      if(!p)p='M'+a1.x+','+a1.y+' C'+a1.x+','+(a1.y+sgn*dy)+' '+a2.x+','+(a2.y-sgn*dy)+' '+a2.x+','+a2.y;
+    }
+    e.path=p;e.mid={x:(a1.x+a2.x)/2,y:(a1.y+a2.y)/2};
+  });
+  let minX=0,minY=0,maxX=totalW,maxY=(L.length-1)*(NH+GY)+NH;
+  boxes.forEach(b=>{minX=Math.min(minX,b.x);minY=Math.min(minY,b.y);maxX=Math.max(maxX,b.x+b.w);maxY=Math.max(maxY,b.y+b.h)});
+  routed.forEach(e=>{const m=e.path.match(/-?\d+(\.\d+)?/g)||[];for(let i=0;i<m.length;i+=2){minX=Math.min(minX,+m[i]);maxX=Math.max(maxX,+m[i])}});
+  return {vis,routed,pos,boxes,vb:{x:minX-MARG,y:minY-MARG,w:maxX-minX+2*MARG,h:maxY-minY+2*MARG}};
+}
+
+function layout(d){
+  const nodes=new Map();
+  d.comps.forEach(c=>nodes.set(c.name,{key:c.name,comp:c}));
+  const edges=d.rels.map(r=>({s:r.source,t:r.target,kind:r.kind,why:r.rationale}));
+  edges.forEach(e=>[e.s,e.t].forEach(k=>{if(!nodes.has(k))nodes.set(k,{key:k,comp:null})}));
+  const disabled=new Set();
+  let res;
+  for(let i=0;i<=edges.length+1;i++){
+    res=place(nodes,edges,disabled);
+    if(!res.conflict)return res;
+    disabled.add(res.conflict);
+  }
+  /* Fallback without boundary grouping to guarantee valid coordinates */
+  const allHostSources=new Set(edges.map(e=>e.s));
+  return place(nodes,edges,allHostSources);
+}
+
+function graphSvg(d){
+  const g=layout(d);
+  const parts=[];
+  parts.push('<svg xmlns="http://www.w3.org/2000/svg" viewBox="'+g.vb.x+' '+g.vb.y+' '+g.vb.w+' '+g.vb.h+'" style="max-width:'+Math.round(g.vb.w*1.1)+'px" width="100%" role="group" aria-label="Component diagram">');
+  parts.push('<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#7F95B3"/></marker><marker id="arr-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0L10,5L0,10z" fill="#1F4FBF"/></marker></defs>');
+  g.boxes.forEach(b=>{
+    const host=d.compByName.get(b.host);
+    const open=host?d.findingsForComp(b.host).length:0;
+    const tw=Math.min(b.w-8,Math.max(150,b.host.length*7.6+(open?64:34)));
+    const rev=open?'<g transform="translate('+(tw-30)+',8)"><path class="rev" d="M10 1.5L19 17H1z"/><text class="revn" x="10" y="14.2" text-anchor="middle">'+open+'</text></g>':'';
+    parts.push('<g class="bgroup" data-bnode="'+esc(b.host)+'"><rect class="bnd" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="3"/>'+
+      '<g class="node bhost" data-node="'+esc(b.host)+'" data-pick-comp="'+esc(b.host)+'" tabindex="0" role="button" aria-label="'+esc(b.host)+', hosts '+b.members.length+' components">'+
+      '<rect class="btab" x="'+b.x+'" y="'+b.y+'" width="'+tw+'" height="'+(TAB-4)+'"/>'+
+      '<text class="bname" x="'+(b.x+12)+'" y="'+(b.y+15)+'">'+esc(b.host)+'</text>'+
+      '<text class="bsub" x="'+(b.x+12)+'" y="'+(b.y+28)+'">hosts '+b.members.length+' components</text>'+
+      '<g transform="translate('+b.x+','+b.y+')">'+rev+'</g></g></g>');
+  });
+  g.routed.forEach(e=>{
+    parts.push('<g class="edge" data-s="'+esc(e.s)+'" data-t="'+esc(e.t)+'"><title>'+esc(e.s)+' '+esc(sentence(e.kind).toLowerCase())+' '+esc(e.t)+(e.why?': '+esc(e.why):'')+'</title><path d="'+e.path+'" pathLength="1"/>'+
+      '<text class="elabel" x="'+e.mid.x+'" y="'+(e.mid.y+4)+'" text-anchor="middle">'+esc(String(e.kind).replace(/_/g,' '))+'</text></g>');
+  });
+  g.vis.forEach(n=>{
+    const p=g.pos.get(n.key);
+    const c=n.comp;
+    const open=c?d.findingsForComp(n.key).length:0;
+    const reqs=c?[...(d.compReqs.get(n.key)||[])].sort():[];
+    const lines=wrapName(n.key);
+    const reqLine=c?(reqs.length?trunc(reqs.join(', '),30):'Cross-cutting'):'External';
+    const nameY=lines.length===1?38:30;
+    const texts=lines.map((t,i)=>'<text class="nname" x="16" y="'+(nameY+i*17)+'">'+esc(t)+'</text>').join('');
+    const rev=open?'<g transform="translate('+(NW-32)+',8)"><path class="rev" d="M10 1.5L19 17H1z"/><text class="revn" x="10" y="14.2" text-anchor="middle">'+open+'</text></g>':'';
+    parts.push('<g class="node'+(open?' flag':'')+(c?'':' ext')+'" data-node="'+esc(n.key)+'" data-pick-comp="'+esc(n.key)+'" transform="translate('+p.x+','+p.y+')" tabindex="0" role="button" aria-label="'+esc(n.key)+(open?', '+open+' open findings':'')+'">'+
+      '<title>'+esc(c?c.responsibility:'External actor named in the relationships')+'</title>'+
+      '<rect class="box" width="'+NW+'" height="'+NH+'" rx="2"/><rect class="bar" width="4" height="'+NH+'"/>'+texts+
+      '<text class="nreqs" x="16" y="'+(NH-12)+'">'+esc(reqLine)+'</text>'+rev+'</g>');
+  });
+  parts.push('</svg>');
+  return {svg:parts.join(''),hasBoundary:g.boxes.length>0};
+}
+
+/* ---------- rendering ---------- */
+const emptyView=(title,body)=>'<div class="empty"><h3>'+esc(title)+'</h3><p>'+esc(body)+'</p></div>';
+const NO_RUN=['No drawing yet','Add requirements on the left and choose Synthesize architecture. Ctrl+Enter also runs it.'];
+
+function renderPipeline(mode,j){
+  const llm=!!(j&&(j.ai_stages||[]).length);
+  const rows=[['Parse requirements',llm?'LLM':'rules'],['Extract components',llm?'LLM':'rules'],['Synthesize architecture',llm?'LLM':'rules'],['Evaluate',llm?'LLM':'rules'],['Trace, diagram, report','rules']];
+  const el=$('#pipe');
+  el.dataset.state=mode;
+  el.innerHTML=rows.map(r=>'<li class="stage"'+(mode==='done'?' title="'+(r[1]==='LLM'?'Model-backed stage':'Rule-based stage')+'"':'')+'><span class="mk"></span><span>'+esc(r[0])+'</span><span class="sm">'+esc(r[1])+'</span></li>').join('');
+  if(j&&(j.ai_stages||[]).length)el.title=j.ai_stages.join('\n');else el.removeAttribute('title');
+}
+
+function renderReqList(){
+  const d=state.d,host=$('#reqlist');
+  if(!d){host.innerHTML='<p class="hint" style="padding:12px 18px">Parsed requirements appear here after a run.</p>';return}
+  host.innerHTML=d.reqs.map(r=>{
+    const st=d.status(r.id);
+    return '<button class="req" type="button" data-pick-req="'+esc(r.id)+'" data-go-tab="architecture" aria-pressed="false"><span class="ico">'+icon(st)+'</span><span><span class="rid">'+esc(r.id)+'</span><span class="rtxt">'+esc(r.text)+'</span><span class="rmeta">'+esc(sentence(r.type))+', '+esc(statusLabel(st).toLowerCase())+'</span></span></button>';
+  }).join('');
+}
+
+function renderArchitecture(fresh){
+  const d=state.d,graph=$('#graph'),foot=$('#foot');
+  if(!d){graph.innerHTML=emptyView(NO_RUN[0],NO_RUN[1]);foot.innerHTML='';renderInspector();return}
+  if(!d.comps.length){graph.innerHTML=emptyView('No components returned','The model did not propose any components for these requirements. Rewrite them to describe what the system must do, then run again.');foot.innerHTML='';renderInspector();return}
+  const g=graphSvg(d);
+  graph.innerHTML=g.svg;
+  graph.classList.toggle('fresh',!!fresh);
+  if(fresh)setTimeout(()=>graph.classList.remove('fresh'),1600);
+  const j=d.j,a=d.a;
+  const cells=[['Project','Archer',1],['Run',j.run_id||'none',1],['Mode',j.mode||'unknown',1],['Date',fmtTime(state.at||Date.now()),1],['Style',a.style||'Not specified',4],
+    ['Requirements',d.reqs.length,1],['Components',d.comps.length,1],['Trace links',d.trace.length,1],['Relationships',d.rels.length,1]];
+  const legend='<ul class="legend"><li><svg width="18" height="16" viewBox="0 0 20 18" aria-hidden="true"><path class="rev" d="M10 1.5L19 17H1z"/></svg>Open findings</li>'+
+    (g.hasBoundary?'<li><svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" rx="2" class="bnd"/></svg>Hosting boundary</li>':'')+
+    '<li>Select a component or requirement to trace it</li></ul>';
+  foot.innerHTML=legend+'<div class="tblock">'+cells.map(c=>'<div class="'+(c[2]===4?'w4':'')+'"><small>'+esc(c[0])+'</small><b>'+esc(c[1])+'</b></div>').join('')+'</div>';
+  renderInspector();
+}
+
+function chipReq(id){
+  const d=state.d;const st=d.status(id);
+  return '<button class="chip" type="button" data-pick-req="'+esc(id)+'">'+icon(st)+esc(id)+'</button>';
+}
+function chipComp(name){return '<button class="chip" type="button" data-pick-comp="'+esc(name)+'">'+esc(name)+'</button>'}
+
+function renderInspector(){
+  const d=state.d,el=$('#inspector'),sel=state.sel;
+  if(!d){el.innerHTML='<h2>Inspector</h2><p class="sub">Details for what you select in the drawing.</p><p class="hint">Run the pipeline to see components, relationships and open findings here.</p>';return}
+  if(!sel){
+    el.innerHTML='<h2>'+esc(d.a.style||'Architecture')+'</h2><p class="sub">Select a component in the drawing, or a requirement on the left, to trace it.</p>'+
+      '<h3>Applied patterns</h3><div class="chips">'+(d.patterns.map(p=>'<span class="chip plain">'+esc(p)+'</span>').join('')||'<span class="hint">None declared.</span>')+'</div>'+
+      '<h3>Recommended, not applied</h3><div class="chips">'+(d.recommended.map(p=>'<span class="chip plain rec">'+esc(p)+'</span>').join('')||'<span class="hint">None.</span>')+'</div>';
+    return;
+  }
+  if(sel.kind==='comp'){
+    const c=d.compByName.get(sel.id);
+    const outs=d.rels.filter(r=>r.source===sel.id),ins=d.rels.filter(r=>r.target===sel.id);
+    const rs=[...(d.compReqs.get(sel.id)||[])].sort();
+    const fs=d.findingsForComp(sel.id);
+    let h='<h2>'+esc(sel.id)+'</h2><p class="sub">'+esc(c?c.id:'External actor')+'</p>';
+    if(c)h+='<p>'+esc(c.responsibility)+'</p>';
+    if(c&&(c.technologies||[]).length)h+='<h3>Technologies</h3><div class="chips">'+c.technologies.map(t=>'<span class="chip plain">'+esc(t)+'</span>').join('')+'</div>';
+    h+='<h3>Requirements</h3>'+(rs.length?'<div class="chips">'+rs.map(chipReq).join('')+'</div>':'<p class="hint">No requirement is mapped to this component. It supports the system as a whole.</p>');
+    if(outs.length||ins.length){
+      h+='<h3>Connections</h3><ul class="conn">';
+      outs.forEach(r=>{h+='<li>'+esc(String(r.kind).replace(/_/g,' '))+' <button type="button" data-pick-comp="'+esc(r.target)+'">'+esc(r.target)+'</button>'+(r.rationale?'<span>'+esc(r.rationale)+'</span>':'')+'</li>'});
+      ins.forEach(r=>{h+='<li><button type="button" data-pick-comp="'+esc(r.source)+'">'+esc(r.source)+'</button> '+esc(String(r.kind).replace(/_/g,' '))+' this'+(r.rationale?'<span>'+esc(r.rationale)+'</span>':'')+'</li>'});
+      h+='</ul>';
+    }
+    if(fs.length){
+      h+='<h3>Open findings</h3>';
+      h+=fs.map(f=>'<div class="gap">'+esc(f.message)+'</div>').join('');
+      h+='<p style="margin-top:8px"><button type="button" class="linkbtn" data-go-tab="findings">See all findings</button></p>';
+    }
+    el.innerHTML=h;return;
+  }
+  const r=d.reqById.get(sel.id)||{id:sel.id,text:'',type:'',confidence:0};
+  const st=d.status(sel.id),as=d.assess.get(sel.id);
+  const comps=[...(d.reqComps.get(sel.id)||[])];
+  let h='<h2>'+esc(r.id)+'</h2><p class="sub"><span class="st">'+icon(st)+esc(statusLabel(st))+'</span></p><p>'+esc(r.text)+'</p>';
+  h+='<p class="sub" style="margin-top:6px">'+esc(sentence(r.type))+(r.confidence!=null?', parsed with confidence '+Number(r.confidence).toFixed(2):'')+'</p>';
+  h+='<h3>Handled by</h3>'+(comps.length?'<div class="chips">'+comps.map(chipComp).join('')+'</div>':'<p class="hint">No component handles this requirement yet.</p>');
+  const gaps=(as&&as.gaps)||[];
+  if(gaps.length)h+='<h3>Gaps</h3>'+gaps.map(x=>'<div class="gap">'+esc(x)+'</div>').join('');
+  const fs=d.findingsForReq(sel.id);
+  if(fs.length&&!gaps.length)h+='<h3>Open findings</h3>'+fs.map(f=>'<div class="gap">'+esc(f.message)+'</div>').join('');
+  h+='<p style="margin-top:14px"><button type="button" class="linkbtn" data-go-tab="trace">See trace and rationale</button></p>';
+  el.innerHTML=h;
+}
+
+function uniqueLines(lines,against){
+  const pool=against.map(norm).filter(Boolean),out=[];
+  for(const l of lines){
+    const n=norm(l);if(!n)continue;
+    if(pool.some(p=>p.includes(n)||n.includes(p)))continue;
+    if(out.some(o=>norm(o).includes(n)||n.includes(norm(o))))continue;
+    out.push(l);
+  }
+  return out;
+}
+
+function renderTrace(){
+  const d=state.d,el=$('#v-trace');
+  if(!d){el.innerHTML=emptyView(...NO_RUN);return}
+  let h='<h2>Traceability</h2><p class="lede">Each requirement against the components that handle it. Select a row or column heading to follow it through the drawing.</p>';
+  h+='<div class="mwrap"><table class="matrix"><thead><tr><th scope="col"><span class="mh"><b>Requirement</b></span></th>'+
+    d.comps.map(c=>'<th scope="col"><button class="mh" type="button" data-pick-comp="'+esc(c.name)+'" data-go-tab="architecture">'+esc(c.name)+'</button></th>').join('')+'</tr></thead><tbody>';
+  d.reqs.forEach(r=>{
+    const st=d.status(r.id);
+    h+='<tr data-row="'+esc(r.id)+'"><th scope="row"><button class="mh" type="button" data-pick-req="'+esc(r.id)+'" data-go-tab="architecture"><b>'+esc(r.id)+'</b><span>'+esc(r.text)+'</span></button></th>';
+    d.comps.forEach(c=>{
+      const mapped=(d.compReqs.get(c.name)||new Set()).has(r.id);
+      h+='<td data-col="'+esc(c.name)+'">'+(mapped?'<button class="cell" type="button" data-pick-req="'+esc(r.id)+'" data-pick-comp="'+esc(c.name)+'" data-go-tab="architecture" aria-label="'+esc(r.id)+' is handled by '+esc(c.name)+', '+esc(statusLabel(st).toLowerCase())+'">'+icon(st)+'</button>':'')+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<h2>Decisions and rationale</h2><p class="lede">Why each requirement landed where it did, with the model\'s confidence in the link.</p>';
+  d.reqs.forEach(r=>{
+    const st=d.status(r.id),as=d.assess.get(r.id);
+    const links=d.trace.filter(t=>t.requirement_id===r.id);
+    const rationales=links.map(t=>t.rationale);
+    const evidence=uniqueLines((as&&as.evidence)||[],rationales);
+    const gaps=(as&&as.gaps)||[];
+    h+='<article class="tr" data-req="'+esc(r.id)+'"><header><button class="idbtn" type="button" data-pick-req="'+esc(r.id)+'" data-go-tab="architecture">'+esc(r.id)+'</button><span class="st">'+icon(st)+esc(statusLabel(st))+'</span><span class="rtext">'+esc(r.text)+'</span></header>';
+    if(links.length){
+      h+='<ul class="links">'+links.map(t=>{
+        const cf=Math.max(0,Math.min(1,Number(t.confidence)||0));
+        return '<li><div class="lk"><span class="el">'+esc(t.architectural_element)+'</span><span class="dec">'+esc(sentence(t.decision))+'</span><span class="conf" title="Confidence '+cf.toFixed(2)+'"><i><b style="width:'+Math.round(cf*100)+'%"></b></i>'+cf.toFixed(2)+'</span></div><p class="why">'+esc(t.rationale)+'</p></li>';
+      }).join('')+'</ul>';
+    }else h+='<p class="why" style="padding:10px 14px">No trace link was produced for this requirement.</p>';
+    if(gaps.length)h+='<div class="gapbox">'+gaps.map(x=>'<div class="gap">'+esc(x)+'</div>').join('')+'</div>';
+    if(evidence.length)h+='<details><summary>More evidence</summary>'+evidence.map(x=>'<p>'+esc(x)+'</p>').join('')+'</details>';
+    h+='</article>';
+  });
+  el.innerHTML=h;
+}
+
+function renderFindings(){
+  const d=state.d,el=$('#v-findings'),badge=$('#fcount');
+  if(!d){el.innerHTML=emptyView(...NO_RUN);badge.textContent='';return}
+  const asText=f=>'['+f.finding_id+'] '+((f.requirement_ids||[]).join(', ')||f.subject)+': '+f.message+' Why it matters: '+f.impact+' Action: '+f.action;
+  const covered=new Set(d.findings.map(asText));
+  const notes=(d.j.warnings||[]).filter(w=>!covered.has(w));
+  const totalCount=d.findings.length+notes.length;
+  badge.textContent=totalCount?String(totalCount):'';
+  let h='<h2>Findings</h2>';
+  if(!d.findings.length&&!notes.length){
+    el.innerHTML=h+'<div class="ok">'+ICON.satisfied+'<div><b>No findings.</b> The consistency checks found nothing to fix in this architecture.</div></div>';return;
+  }
+  const groups=new Map();
+  d.findings.forEach(f=>getOr(groups,f.code,()=>[]).push(f));
+  h+='<p class="lede">'+d.findings.length+' finding'+(d.findings.length===1?'':'s')+' from '+groups.size+' check'+(groups.size===1?'':'s')+'. Findings of the same kind are grouped so the shared explanation appears once.</p>';
+  if(notes.length)h+='<ul class="notes">'+notes.map(n=>'<li>'+esc(n)+'</li>').join('')+'</ul>';
+  const ordered=[...groups.entries()].sort((a,b)=>(b[1].some(f=>f.severity==='error')-a[1].some(f=>f.severity==='error')));
+  ordered.forEach(([code,fs])=>{
+    const sev=fs.some(f=>f.severity==='error')?'error':'warning';
+    const sharedImpact=fs.every(f=>f.impact===fs[0].impact),sharedAction=fs.every(f=>f.action===fs[0].action);
+    h+='<section class="fgroup" data-sev="'+sev+'"><header><h3>'+esc(codeTitle(code))+'</h3><span class="cnt">'+fs.length+' '+(fs.length===1?'finding':'findings')+', '+sev+'</span></header>';
+    if(sharedImpact||sharedAction){
+      h+='<div class="shared">'+(sharedImpact?'<p><b>Why it matters:</b> '+esc(fs[0].impact)+'</p>':'')+(sharedAction?'<p><b>What to do:</b> '+esc(fs[0].action)+'</p>':'')+'</div>';
+    }
+    h+='<ul>'+fs.map(f=>{
+      const ids=(f.requirement_ids||[]);
+      return '<li><div class="chips">'+(ids.length?ids.map(chipReq).join(''):'<span class="chip plain">'+esc(f.subject||'Architecture-wide')+'</span>')+'<span class="fid">'+esc(f.finding_id)+'</span></div><p>'+esc(f.message)+'</p>'+
+        (!sharedImpact?'<p class="own"><b>Why it matters:</b> '+esc(f.impact)+'</p>':'')+(!sharedAction?'<p class="own"><b>What to do:</b> '+esc(f.action)+'</p>':'')+'</li>';
+    }).join('')+'</ul></section>';
+  });
+  el.innerHTML=h;
+}
+
+/* diagrams */
+const DIAGRAMS=[['architecture','System architecture'],['use_case','Use cases'],['sequence','Sequence'],['activity','Activity workflow'],['class','Domain classes']];
+const svgCache=new Map();let midCounter=0;
+function diagramEntries(d){
+  const uml=d.j.uml||{},st=d.j.diagram_status||{},inner=d.j.internal_workflow_diagrams||{};
+  const main=DIAGRAMS.map(([key,label])=>({id:key,label,src:uml[key]||'',status:st[key]||(uml[key]?'available':'unavailable: Not generated for this run.'),group:'target'}));
+  const internal=Object.entries(inner).map(([k,src])=>({id:'internal-'+k,label:sentence(k),src:src||'',status:src?'available':'unavailable: No workflow diagram was provided.',group:'internal'}));
+  return main.concat(internal);
+}
+function renderDiagramsShell(){
+  const d=state.d,el=$('#v-diagrams');
+  if(!d){el.innerHTML=emptyView(...NO_RUN);return}
+  const all=diagramEntries(d);
+  if(!all.some(x=>x.id===state.diagram))state.diagram=all[0].id;
+  const btn=e=>'<li><button class="dbtn'+(e.src?'':' off')+'" type="button" data-diagram="'+esc(e.id)+'" aria-current="'+(e.id===state.diagram)+'"><i></i>'+esc(e.label)+'</button></li>';
+  const target=all.filter(x=>x.group==='target'),internal=all.filter(x=>x.group==='internal');
+  el.innerHTML='<h2>Diagrams</h2><p class="lede">Generated from this run\'s architecture. Diagrams the input cannot support are greyed out; select one to see why.</p>'+
+    '<div class="dgrid"><nav class="dnav" aria-label="Diagrams"><h3>Target system</h3><ul>'+target.map(btn).join('')+'</ul>'+
+    (internal.length?'<h3>How Archer works</h3><ul>'+internal.map(btn).join('')+'</ul>':'')+'</nav><div id="dview"></div></div>';
+  showDiagram(state.diagram);
+}
+async function showDiagram(id){
+  const d=state.d;if(!d)return;
+  state.diagram=id;
+  $$('#v-diagrams [data-diagram]').forEach(b=>b.setAttribute('aria-current',String(b.dataset.diagram===id)));
+  const e=diagramEntries(d).find(x=>x.id===id),view=$('#dview');
+  if(!e||!view)return;
+  if(!e.src){
+    view.innerHTML='<div class="empty" style="margin:30px auto"><h3>'+esc(e.label)+' was not generated</h3><p>'+esc(e.status.replace(/^unavailable:\s*/i,''))+'</p></div>';return;
+  }
+  const note=e.status==='available'?'':'<p class="dnote">'+esc(e.status.replace(/^available;?\s*/i,''))+'</p>';
+  view.innerHTML='<div class="dtool"><h3>'+esc(e.label)+'</h3><button class="btn ghost small" type="button" data-dact="toggle">'+(state.showSrc?'Show diagram':'Show source')+'</button><button class="btn ghost small" type="button" data-dact="copy">Copy source</button>'+(state.showSrc?'':'<button class="btn ghost small" type="button" data-dact="svg">Download SVG</button>')+'<span class="copied" id="copied" aria-live="polite"></span></div>'+note+'<div id="dstage" class="dstage"></div>';
+  const stage=$('#dstage');
+  if(state.showSrc){stage.innerHTML='<pre class="src">'+esc(e.src)+'</pre>';return}
+  stage.innerHTML='<p class="hint">Rendering…</p>';
+  const key=d.j.run_id+':'+id;
   try{
-   if(!window.mermaid)throw new Error('Mermaid did not load.');
-   const rendered=await window.mermaid.render(`archer-mermaid-${index}`,item.source);
-   box.innerHTML=rendered.svg;if(rendered.bindFunctions)rendered.bindFunctions(box);
-  }catch(error){box.textContent='Diagram rendering failed. The Mermaid source is available using the source toggle.';box.classList.add('diagram-state');}
- }
- host.querySelectorAll('[data-diagram-toggle]').forEach(button=>button.addEventListener('click',()=>{
-  const index=button.dataset.diagramToggle;const source=document.getElementById(`diagram-source-${index}`);const rendered=document.getElementById(`diagram-render-${index}`);const showSource=source.hidden;
-  source.hidden=!showSource;rendered.hidden=showSource;button.textContent=showSource?'Show rendered diagram':'View Mermaid source';
- }));
- host.querySelectorAll('[data-diagram-copy]').forEach(button=>button.addEventListener('click',async()=>{
-  const source=all[Number(button.dataset.diagramCopy)].source;const state=document.getElementById(`diagram-copy-state-${button.dataset.diagramCopy}`);
-  try{await navigator.clipboard.writeText(source);state.textContent='Source copied.';}catch(error){state.textContent='Clipboard access is unavailable in this browser context.';}
- }));
+    let svg=svgCache.get(key);
+    if(!svg){
+      if(!window.mermaid)throw new Error('Mermaid did not load. Check your network connection, then reload.');
+      if(document.fonts&&document.fonts.ready)await document.fonts.ready;
+      const out=await window.mermaid.render('archer-m-'+(++midCounter),e.src);
+      svg=out.svg;svgCache.set(key,svg);
+    }
+    if(state.diagram===id&&!state.showSrc)stage.innerHTML=svg;
+  }catch(err){
+    stage.innerHTML='<div class="gap">Could not draw this diagram. '+esc(err&&err.message?err.message:'')+' Use Show source to view it as Mermaid code.</div>';
+  }
 }
-function diagramSection(item,index){
- const status=item.status||'unavailable';
- if(!item.source)return `<section class="diagram-section"><h3>${escapeHtml(item.label)}</h3><p class="diagram-state">${escapeHtml(status.replace(/^unavailable:\s*/i,''))}</p></section>`;
- const note=status==='available'?'':`<p class="diagram-state">${escapeHtml(status.replace(/^available;?\s*/i,''))}</p>`;
- return `<section class="diagram-section"><h3>${escapeHtml(item.label)}</h3>${note}<div class="diagram-controls"><button class="btn secondary" data-diagram-toggle="${index}">View Mermaid source</button><button class="btn secondary" data-diagram-copy="${index}">Copy source</button><span id="diagram-copy-state-${index}" class="small" aria-live="polite"></span></div><div id="diagram-render-${index}" class="diagram-viewport"></div><pre id="diagram-source-${index}" class="diagram-source" hidden>${escapeHtml(item.source)}</pre></section>`;
+
+/* report */
+function md(src){
+  const inline=s=>esc(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+  const lines=String(src||'').split('\n');let out='',para=[],list=false,code=null,tbl=[];
+  const fp=()=>{if(para.length){out+='<p>'+inline(para.join(' '))+'</p>';para=[]}};
+  const fl=()=>{if(list){out+='</ul>';list=false}};
+  const ft=()=>{
+    if(!tbl.length)return;
+    const rows=tbl.filter(r=>!/^\s*\|?\s*:?-{2,}/.test(r)).map(r=>r.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim()));
+    if(rows.length){out+='<table><thead><tr>'+rows[0].map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+rows.slice(1).map(r=>'<tr>'+r.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table>'}
+    tbl=[];
+  };
+  for(const line of lines){
+    if(/^```/.test(line)){
+      if(code===null){fp();fl();ft();code=[]}else{out+='<pre>'+esc(code.join('\n'))+'</pre>';code=null}
+      continue;
+    }
+    if(code!==null){code.push(line);continue}
+    if(/^\s*\|/.test(line)){fp();fl();tbl.push(line);continue}else ft();
+    let m;
+    if((m=line.match(/^(#{1,3})\s+(.*)$/))){fp();fl();out+='<h'+m[1].length+'>'+inline(m[2])+'</h'+m[1].length+'>'}
+    else if((m=line.match(/^\s*[-*]\s+(.*)$/))){fp();if(!list){out+='<ul>';list=true}out+='<li>'+inline(m[1])+'</li>'}
+    else if(!line.trim()){fp();fl()}
+    else{fl();para.push(line.trim())}
+  }
+  fp();fl();ft();
+  if(code!==null)out+='<pre>'+esc(code.join('\n'))+'</pre>';
+  return out;
 }
-function escapeHtml(s){return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
-function downloadReport(){const blob=new Blob([result.report_markdown],{type:'text/markdown'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='architecture-report.md';a.click();URL.revokeObjectURL(a.href)}
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById(b.dataset.tab).classList.add('active')});
-if(window.mermaid)window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',flowchart:{htmlLabels:false}});
-loadConfig();sample();
-</script></body></html>
+function renderReport(){
+  const d=state.d,el=$('#v-report');
+  if(!d){el.innerHTML=emptyView(...NO_RUN);return}
+  el.innerHTML='<h2>Report</h2><p class="lede">Written from this run, including the mode and the pipeline stages.</p><div class="dtool"><button class="btn small" type="button" data-ract="download">Download report.md</button><button class="btn ghost small" type="button" data-ract="copy">Copy markdown</button><span class="copied" id="rcopied" aria-live="polite"></span></div><div class="mdv">'+md(d.j.report_markdown)+'</div>';
+}
+
+function renderAll(fresh){
+  renderReqList();renderArchitecture(fresh);renderTrace();renderFindings();
+  state.showSrc=false;renderDiagramsShell();renderReport();
+  refreshSelection();
+}
+
+/* ---------- selection ---------- */
+function refreshSelection(){
+  const d=state.d,sel=state.sel;
+  const onComps=new Set(),onReqs=new Set();
+  if(d&&sel){
+    if(sel.kind==='comp'){onComps.add(sel.id);d.neighbors(sel.id).forEach(n=>onComps.add(n));(d.compReqs.get(sel.id)||[]).forEach(r=>onReqs.add(r))}
+    else{(d.reqComps.get(sel.id)||[]).forEach(c=>onComps.add(c));onReqs.add(sel.id)}
+  }
+  const svg=$('#graph svg');
+  if(svg){
+    svg.classList.toggle('has-sel',!!sel);
+    $$('[data-node]',svg).forEach(n=>{
+      n.classList.toggle('on',onComps.has(n.dataset.node));
+      n.classList.toggle('sel',!!sel&&sel.kind==='comp'&&sel.id===n.dataset.node);
+    });
+    $$('.edge',svg).forEach(e=>{
+      let on=false;
+      if(sel){
+        if(sel.kind==='comp')on=e.dataset.s===sel.id||e.dataset.t===sel.id;
+        else on=onComps.has(e.dataset.s)&&onComps.has(e.dataset.t);
+      }
+      e.classList.toggle('on',on);
+    });
+  }
+  $$('#reqlist .req').forEach(b=>{
+    const id=b.dataset.pickReq;
+    b.setAttribute('aria-pressed',String(!!sel&&sel.kind==='req'&&sel.id===id));
+    b.classList.toggle('rel',!!sel&&sel.kind==='comp'&&onReqs.has(id));
+  });
+  $$('.tr').forEach(t=>t.classList.toggle('on',!!sel&&sel.kind==='req'&&sel.id===t.dataset.req));
+  $$('.matrix [data-row]').forEach(r=>r.classList.toggle('hl',!!sel&&sel.kind==='req'&&sel.id===r.dataset.row));
+  $$('.matrix td[data-col]').forEach(c=>c.classList.toggle('hl-x',!!sel&&sel.kind==='comp'&&sel.id===c.dataset.col));
+  renderInspector();
+}
+function pick(kind,id){
+  if(state.sel&&state.sel.kind===kind&&state.sel.id===id){state.sel=null}
+  else state.sel={kind,id};
+  refreshSelection();
+}
+
+/* ---------- tabs ---------- */
+function setTab(name){
+  state.tab=name;
+  $$('.tab').forEach(t=>t.setAttribute('aria-selected',String(t.dataset.tab===name)));
+  $$('.view').forEach(v=>v.hidden=v.id!=='v-'+name);
+  if(name==='diagrams'&&state.d)showDiagram(state.diagram);
+}
+
+/* ---------- history ---------- */
+const HKEY='archer.runs.v1';
+const loadHist=()=>{try{return JSON.parse(localStorage.getItem(HKEY)||'[]')}catch(e){return []}};
+function saveHist(j,input){
+  try{
+    const h=loadHist().filter(x=>x.id!==j.run_id);
+    h.unshift({id:j.run_id,at:Date.now(),mode:j.mode,n:(j.requirements||[]).length,first:((j.requirements||[])[0]||{}).text||'',input,result:j});
+    localStorage.setItem(HKEY,JSON.stringify(h.slice(0,6)));
+  }catch(e){}
+  renderHistory();
+}
+function renderHistory(){
+  const h=loadHist(),box=$('#hist');
+  box.hidden=!h.length;
+  $('#histlist').innerHTML=h.map(x=>'<li><button class="hrow" type="button" data-hist="'+esc(x.id)+'"><span class="hq">'+esc(trunc(x.first,70))+'</span><span class="hm">'+x.n+' requirements, '+esc(x.mode||'')+', '+esc(fmtTime(x.at))+'</span></button></li>').join('');
+}
+function restore(id){
+  const x=loadHist().find(r=>r.id===id);if(!x)return false;
+  if(x.input)$('#req').value=x.input;
+  load(x.result,{at:x.at,save:false,fresh:false});
+  setStatus('Restored run '+x.id+'.','');
+  return true;
+}
+
+/* ---------- run ---------- */
+function setStatus(msg,kind){const s=$('#status');s.textContent=msg;s.className='status'+(kind==='err'?' err':'')}
+function load(j,opts){
+  opts=opts||{};
+  state.d=derive(j);state.sel=null;state.at=opts.at||Date.now();
+  renderPipeline('done',j);
+  $('#elapsed').textContent=opts.elapsed||'';
+  renderAll(opts.fresh!==false);
+  setTab('architecture');
+  if(opts.save!==false)saveHist(j,$('#req').value);
+}
+async function run(){
+  const text=$('#req').value;
+  if(state.running)return;
+  if(!text.trim()){setStatus('Add at least one requirement first.','err');$('#req').focus();return}
+  state.running=true;
+  const btn=$('#run');btn.disabled=true;btn.textContent='Synthesizing…';btn.setAttribute('aria-busy','true');
+  const t0=performance.now();
+  renderPipeline('running');
+  setStatus('Running the pipeline. This usually takes a few seconds.','');
+  state.timer=setInterval(()=>{$('#elapsed').textContent='Running, '+Math.round((performance.now()-t0)/1000)+' s'},500);
+  $('#elapsed').textContent='Running, 0 s';
+  try{
+    const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requirements:text})});
+    let j={};try{j=await r.json()}catch(e){}
+    if(!r.ok)throw new Error(typeof j.detail==='string'?j.detail:(j.detail?JSON.stringify(j.detail):'The server returned status '+r.status+'.'));
+    const secs=Math.round((performance.now()-t0)/1000);
+    load(j,{elapsed:'Done in '+secs+' s'});
+    if(j.mode==='deterministic-fallback'){
+      const hasWarn=(j.warnings||[]).some(w=>w.includes('fallback was used')||w.includes('not configured'));
+      setStatus('Synthesized in '+secs+' s (fallback mode), run '+j.run_id+'.',hasWarn?'err':'');
+    }else{
+      setStatus('Synthesized in '+secs+' s (live LLM), run '+j.run_id+'.','');
+    }
+  }catch(e){
+    renderPipeline('idle');$('#elapsed').textContent='';
+    const net=e instanceof TypeError;
+    setStatus('Could not run the pipeline. '+(net?'The server did not respond. Check that the server is running, then try again.':e.message),'err');
+  }finally{
+    clearInterval(state.timer);state.running=false;
+    btn.disabled=false;btn.textContent='Synthesize architecture';btn.removeAttribute('aria-busy');
+  }
+}
+async function loadSample(){
+  try{const r=await fetch('/api/sample');const j=await r.json();$('#req').value=j.requirements}
+  catch(e){setStatus('Could not load the sample. Check that the server is running.','err')}
+}
+async function loadConfig(){
+  const el=$('#mode'),label=el.querySelector('span');
+  try{
+    const r=await fetch('/api/config'),j=await r.json();
+    if(j.llm_configured){el.className='mode live';label.textContent='Live model: '+(j.provider||j.model);el.title='Model: '+(j.model||'unknown')}
+    else{el.className='mode warn';label.textContent='Fallback mode. Set LLM_API_KEY to use a model.';}
+  }catch(e){el.className='mode warn';label.textContent='Server not reachable'}
+}
+function download(name,text,type){
+  const b=new Blob([text],{type:type||'text/plain'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+async function copyText(t,target){
+  try{
+    await navigator.clipboard.writeText(t);
+    target.textContent='Copied.';
+    setTimeout(()=>{if(target&&target.textContent==='Copied.')target.textContent='';},2500);
+  }catch(e){
+    target.textContent='Copying is blocked in this browser context.';
+    setTimeout(()=>{if(target)target.textContent='';},3500);
+  }
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-pick-req],[data-pick-comp],[data-go-tab],[data-diagram],[data-dact],[data-ract],[data-hist],.tab');
+  if(!el)return;
+  const ds=el.dataset;
+  if(el.classList.contains('tab')){setTab(ds.tab);return}
+  if(ds.hist){restore(ds.hist);return}
+  if(ds.diagram){state.showSrc=false;showDiagram(ds.diagram);return}
+  if(ds.dact){
+    const d=state.d;if(!d)return;
+    const entry=diagramEntries(d).find(x=>x.id===state.diagram);
+    if(ds.dact==='toggle'){state.showSrc=!state.showSrc;showDiagram(state.diagram)}
+    else if(ds.dact==='copy'&&entry)copyText(entry.src,$('#copied'));
+    else if(ds.dact==='svg'){const s=svgCache.get(d.j.run_id+':'+state.diagram);if(s)download('archer-'+state.diagram+'.svg',s,'image/svg+xml')}
+    return;
+  }
+  if(ds.ract){
+    if(!state.d)return;
+    if(ds.ract==='download')download('architecture-report.md',state.d.j.report_markdown||'','text/markdown');
+    else copyText(state.d.j.report_markdown||'',$('#rcopied'));
+    return;
+  }
+  if(ds.pickReq&&ds.pickComp){state.sel={kind:'req',id:ds.pickReq};refreshSelection()}
+  else if(ds.pickReq)pick('req',ds.pickReq);
+  else if(ds.pickComp)pick('comp',ds.pickComp);
+  if(ds.goTab&&ds.goTab!==state.tab)setTab(ds.goTab);
+});
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();run();return}
+  const node=e.target.closest&&e.target.closest('.node');
+  if(node&&(e.key==='Enter'||e.key===' ')){e.preventDefault();pick('comp',node.dataset.node)}
+  if(e.target.classList&&e.target.classList.contains('tab')&&(e.key==='ArrowRight'||e.key==='ArrowLeft')){
+    const tabs=$$('.tab'),i=tabs.indexOf(e.target),n=tabs[(i+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length];
+    n.focus();setTab(n.dataset.tab);
+  }
+});
+$('#run').addEventListener('click',run);
+$('#sample').addEventListener('click',loadSample);
+
+/* ---------- boot ---------- */
+if(window.mermaid){
+  window.mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',
+    themeVariables:{fontFamily:"'IBM Plex Sans', system-ui, sans-serif",fontSize:'14px',primaryColor:'#FFFFFF',primaryBorderColor:'#11253D',primaryTextColor:'#11253D',lineColor:'#1F4FBF',secondaryColor:'#DCE6F8',tertiaryColor:'#F7F9FB',clusterBkg:'#F7F9FB',clusterBorder:'#1F4FBF',noteBkgColor:'#FBE7E3',noteBorderColor:'#C8321F'},
+    flowchart:{htmlLabels:false,curve:'basis'}});
+}
+renderPipeline('idle');
+renderAll(false);
+renderHistory();
+loadConfig();
+(function(){
+  try{const h=loadHist();if(!(h.length&&restore(h[0].id)))loadSample()}
+  catch(e){loadSample()}
+})();
+</script>
+</body>
+</html>
