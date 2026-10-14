@@ -16,7 +16,7 @@ Archer provides dual execution modes:
 - **Candidate Component Extraction**: Identifies cohesive architectural components, maps requirement IDs to each component, deduces component responsibilities, and suggests justified implementation technologies.
 - **Architecture Synthesis**: Infers architectural styles (e.g., Layered, Event-Driven, Pipeline), defines directional component relationships with interaction kinds (`request`, `service-call`, `event`, `depends_on`, `audit-write`) and rationales, and categorizes design patterns as applied or recommended.
 - **Bidirectional Traceability**: Links every requirement to architectural elements, explicit architectural decisions, rationales, and confidence levels.
-- **Automated Architecture Evaluation**: Runs a deterministic evaluation engine that inspects architecture graphs and requirement coverage, generating actionable findings (`EvaluationFinding`) with unique IDs (`EV-<hash>`), severities, impact explanations, and recommended remediations.
+- **Automated Architecture Evaluation**: Runs a deterministic evaluation engine that inspects architecture graphs and requirement coverage. It validates relationship endpoints (including recognized external actor boundaries), enforces dependency-cycle and pattern checks, downgrades requirement assessments when evidence, gaps, or availability constraints do not justify satisfaction, and generates actionable findings (`EvaluationFinding`) with unique IDs (`EV-<hash>`), severities, impact explanations, and recommended remediations.
 - **Automated Diagram Generation**: Generates target-system Mermaid diagrams (Component/Architecture, Use-Case, Sequence, Activity/Workflow) with explicit availability status and fallback explanations, alongside internal pipeline workflow diagrams.
 - **Comprehensive Markdown Reporting**: Compiles a detailed markdown architecture report containing requirements matrices, component catalogs, relationship graphs, traceability tables, evaluation findings, and diagram specifications.
 - **Interactive Web Interface**: Single-page web console (`static/index.html`) featuring live mode indicators, tabbed inspection views, and dynamic client-side SVG rendering using Mermaid.js.
@@ -74,9 +74,9 @@ Natural-Language Requirements
      - Traceability errors (unknown requirements, invalid targets, untraced requirements).
      - Ambiguous requirements requiring clarification before architectural baselining.
      - Unrepresented architectural patterns declared without structural backing.
-     - Relationship defects (nonexistent endpoints, dangling external boundaries, cyclic dependencies).
+     - Relationship defects (nonexistent endpoints, dangling external boundaries, cyclic dependencies), validating endpoints against known components and recognized external actor prefixes (`external ` and `external:`).
      - High-availability claims lacking concrete redundancy mechanisms or measurable targets (e.g., uptime percentages or RTO/RPO targets).
-     - Incomplete requirement satisfaction or unresolved gaps.
+     - Incomplete requirement satisfaction or unresolved gaps, downgrading requirement assessments when stated gaps, lack of supporting evidence, or unasserted availability mechanisms do not justify a satisfied status.
 6. **Diagram Generation**:
    - The diagram generator (`app/pipeline/uml.py`) inspects architecture graphs and requirement cues to produce Mermaid source code:
      - **Architecture Diagram**: A top-down flowchart (`flowchart TD`) showing components, external actors, and typed dependency edges.
@@ -327,9 +327,9 @@ python -m pytest
 
 ### Verified Test Suite Status
 
-The test suite runs with **88 passing tests**:
-- `tests/test_evaluator.py`: 30 passed (evaluates availability checks, dangling relationship detection, cyclic dependency checks, trace validation).
-- `tests/test_pipeline.py`: 35 passed (verifies pipeline execution, structured output schemas, provider rate-limit handling, LLM synthesis constraints).
+The latest verified test run passed **90 tests**:
+- `tests/test_evaluator.py`: 31 passed (evaluates availability checks, recognized external actor endpoints, dangling relationship detection, cyclic dependency checks, trace validation).
+- `tests/test_pipeline.py`: 36 passed (verifies pipeline execution, live-LLM availability assessment downgrades, structured output schemas, provider rate-limit handling, LLM synthesis constraints).
 - `tests/test_synthesizer.py`: 5 passed (tests deterministic synthesis, event trigger parsing, audit relationships, external actor extraction).
 - `tests/test_uml.py`: 18 passed (tests Mermaid syntax escaping, label wrapping, actor association, sequence flow derivation).
 
