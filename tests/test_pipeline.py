@@ -87,6 +87,60 @@ def test_live_pipeline_preserves_semantic_requirement_assessments(monkeypatch):
     assert any(f.code == "requirement_partial" for f in result.evaluation_findings)
 
 
+def test_live_pipeline_downgrades_satisfied_availability_assessment(monkeypatch):
+    requirement = Requirement(
+        id="REQ-001",
+        text="The system shall support high availability.",
+        type="non_functional",
+        confidence=0.9,
+    )
+    component = Component(
+        id="COMP-001",
+        name="High Availability Infrastructure",
+        responsibility="Coordinates system operations.",
+        requirements=["REQ-001"],
+    )
+    architecture = Architecture(
+        style="Layered",
+        components=[component],
+        relationships=[],
+        patterns=["Layered Architecture"],
+    )
+    trace = [TraceLink(
+        requirement_id="REQ-001",
+        architectural_element="High Availability Infrastructure",
+        decision="Use High Availability Infrastructure",
+        rationale="Coordinates system operations.",
+        confidence=0.9,
+    )]
+    semantic_assessment = llm.LLMRequirementAssessment(
+        requirement_id="REQ-001",
+        status="satisfied",
+        evidence="High Availability Infrastructure coordinates system operations.",
+        gaps=[],
+    )
+    monkeypatch.setattr(engine, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        engine,
+        "run_llm_pipeline",
+        lambda _text: ([requirement], architecture, trace, [], ["Groq reflection"], [semantic_assessment]),
+    )
+
+    result = run_pipeline("The system shall support high availability.")
+
+    assert result.mode == "live-llm"
+    assert result.requirement_assessments[0].status == "partially_satisfied"
+    assert any(f.code == "availability_mechanism_unspecified" for f in result.evaluation_findings)
+    availability_finding = next(
+        f for f in result.evaluation_findings if f.code == "availability_mechanism_unspecified"
+    )
+    assert availability_finding.finding_id in result.requirement_assessments[0].finding_ids
+    assert any(
+        "No concrete availability mechanism is described" in gap
+        for gap in result.requirement_assessments[0].gaps
+    )
+
+
 def test_llm_synthesis_uses_explicit_output_token_budget(monkeypatch):
     seen = {}
 
