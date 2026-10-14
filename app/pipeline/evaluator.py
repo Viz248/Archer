@@ -324,7 +324,7 @@ def _known_endpoint(value: str, component_names: dict[str, str]) -> bool:
     return (
         normalized in component_names
         or normalized in _EXTERNAL_ENDPOINTS
-        or normalized.startswith("external ")
+        or normalized.startswith(("external ", "external:"))
     )
 
 

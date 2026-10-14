@@ -181,6 +181,16 @@ def test_relationship_to_nonexistent_component_is_flagged():
     assert finding.action
 
 
+def test_colon_prefixed_external_endpoint_is_not_reported_as_unknown():
+    architecture = _architecture(relationships=[
+        Relationship("External: Customers", "Order Service", "request", "Customers place orders."),
+    ])
+
+    _, findings = evaluate_architecture([_requirement()], architecture, _trace())
+
+    assert not any(f.code == "relationship_unknown_component" for f in findings)
+
+
 def test_malformed_relationship_fields_are_reported_against_schema():
     malformed = [
         (Relationship(12, "Order Service", "service-call", "Calls orders."), "invalid_relationship_endpoint"),
