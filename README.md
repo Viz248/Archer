@@ -1,6 +1,6 @@
 # Archer — AI-Assisted Requirements-to-Architecture Synthesis System
 
-Archer (Req2Arch) is an AI-assisted software engineering platform that synthesizes structured, explainable software architectures from natural-language requirements.
+Archer is an AI-assisted software engineering platform that synthesizes structured, explainable software architectures from natural-language requirements.
 
 Rather than treating architecture generation as an opaque, single-prompt generation task, Archer implements an inspectable multi-stage pipeline. The system extracts candidate components, infers architectural styles and relationships, establishes bidirectional requirement traceability, evaluates architectural consistency through automated rules and reflection, and generates target-system UML/Mermaid diagrams and reports.
 
@@ -130,7 +130,7 @@ Natural-Language Requirements
 ## Project Structure
 
 ```
-req2arch_demo/
+Archer/
 ├── app/
 │   ├── main.py                 # FastAPI application and route handlers
 │   ├── models.py               # Domain dataclasses (Requirement, Component, etc.)
@@ -176,7 +176,7 @@ req2arch_demo/
 1. **Clone the repository and navigate to the directory**:
    ```bash
    git clone <repository-url>
-   cd req2arch_demo
+   cd Archer
    ```
 
 2. **Create and activate a virtual environment**:
